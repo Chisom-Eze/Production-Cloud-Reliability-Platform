@@ -1,0 +1,2 @@
+"""SQS worker entry point."""
+
