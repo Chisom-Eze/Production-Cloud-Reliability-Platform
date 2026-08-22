@@ -1,7 +1,8 @@
+from time import perf_counter
+
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
-from time import perf_counter
 
 HTTP_REQUESTS = Counter(
     "app_http_requests_total",

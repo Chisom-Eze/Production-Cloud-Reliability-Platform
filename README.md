@@ -55,6 +55,7 @@ The platform demonstrates how production systems are designed, deployed, observe
 - [Local Development](docs/operations/local-development.md)
 - [Stage 1 Local Application](docs/operations/stage-1-local-application.md)
 - [Stage 1 Nginx Upstream Failure Drill](docs/incidents/stage-1-nginx-upstream-failure.md)
+- [Continuous Integration](docs/operations/continuous-integration.md)
 
 ## Stage 1 Local Commands
 

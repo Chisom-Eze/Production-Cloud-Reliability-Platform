@@ -4,14 +4,25 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Response, status
 
-from application.api.schemas import Customer, CustomerCreate, HealthResponse, Job, JobCreate, ReadyResponse
+from application.api.schemas import (
+    Customer,
+    CustomerCreate,
+    HealthResponse,
+    Job,
+    JobCreate,
+    ReadyResponse,
+)
 from application.api.service import ApplicationService
 from application.shared.adapters import LocalJobPublisher
 from application.shared.config import Settings, get_settings
 from application.shared.database import Database
 from application.shared.logging import RequestContextMiddleware, configure_logging
 from application.shared.metrics import PrometheusMiddleware, metrics_response
-from application.shared.repository import DuplicateCustomerError, NotFoundError, Repository
+from application.shared.repository import (
+    DuplicateCustomerError,
+    NotFoundError,
+    Repository,
+)
 
 logger = getLogger("application.api")
 
