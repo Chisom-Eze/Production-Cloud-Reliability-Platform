@@ -2,8 +2,9 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
+from psycopg import Error as PsycopgError
 from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
+from psycopg_pool import ConnectionPool, PoolTimeout
 
 
 class Database:
@@ -24,14 +25,13 @@ class Database:
 
     @contextmanager
     def transaction(self) -> Iterator[Any]:
-        with self._pool.connection() as connection:
-            with connection.transaction():
-                yield connection
+        with self._pool.connection() as connection, connection.transaction():
+            yield connection
 
     def check(self) -> bool:
         try:
             with self._pool.connection() as connection:
                 row = connection.execute("SELECT 1 AS ok").fetchone()
                 return bool(row and row["ok"] == 1)
-        except Exception:
+        except (PsycopgError, PoolTimeout):
             return False
