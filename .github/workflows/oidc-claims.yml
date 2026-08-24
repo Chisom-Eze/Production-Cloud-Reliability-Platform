@@ -1,0 +1,40 @@
+name: Inspect OIDC Claims
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: development
+
+    steps:
+      - name: Inspect safe GitHub identity values
+        run: |
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Repository ID: $GITHUB_REPOSITORY_ID"
+          echo "Owner: $GITHUB_REPOSITORY_OWNER"
+          echo "Owner ID: $GITHUB_REPOSITORY_OWNER_ID"
+
+      - name: Inspect selected OIDC claims
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const token = await core.getIDToken('sts.amazonaws.com');
+
+            const payload = JSON.parse(
+              Buffer.from(token.split('.')[1], 'base64url').toString()
+            );
+
+            core.info(`iss=${payload.iss}`);
+            core.info(`aud=${payload.aud}`);
+            core.info(`sub=${payload.sub}`);
+            core.info(`repository=${payload.repository}`);
+            core.info(`repository_id=${payload.repository_id}`);
+            core.info(`repository_owner=${payload.repository_owner}`);
+            core.info(`repository_owner_id=${payload.repository_owner_id}`);
+            core.info(`environment=${payload.environment}`);
