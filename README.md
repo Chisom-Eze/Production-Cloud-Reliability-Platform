@@ -57,6 +57,10 @@ The platform demonstrates how production systems are designed, deployed, observe
 - [Stage 1 Nginx Upstream Failure Drill](docs/incidents/stage-1-nginx-upstream-failure.md)
 - [Continuous Integration](docs/operations/continuous-integration.md)
 
+## Stage 2A Documents
+
+- [Terraform Bootstrap](infrastructure/bootstrap/README.md)
+
 ## Stage 1 Local Commands
 
 Install Python 3.11 or newer for tests, then:

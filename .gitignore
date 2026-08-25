@@ -3,4 +3,33 @@ __pycache__/
 *.pyc
 .venv/
 .docker-tmp/
+
+# Local environment/secrets
 .env
+.env.*
+!.env.example
+
+# Terraform local state
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Terraform variable files - may contain secrets
+*.tfvars
+*.tfvars.json
+terraform.tfvars
+
+# Terraform plan files
+*.tfplan
+tfplan
+
+# Terraform crash logs
+crash.log
+crash.*.log
+
+# Terraform overrides
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
