@@ -64,8 +64,9 @@ Only one live environment will be built during the five-hour delivery. Additiona
 ## Terraform State
 
 - Use a dedicated S3 state bucket.
-- Use locking for state safety.
-- Preferred first implementation: S3 backend with a DynamoDB lock table unless the selected Terraform version and team preference support an equivalent simpler locking mode.
+- Keep bootstrap state local first because the backend bucket does not exist yet.
+- Prepare later Terraform backend configuration for S3 native locking with `use_lockfile = true`.
+- Do not create a DynamoDB locking table in Stage 2A.
 
 ## Standard Tags
 
