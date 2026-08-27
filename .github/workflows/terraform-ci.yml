@@ -1,0 +1,95 @@
+name: Terraform Static Quality Gates
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "infrastructure/**"
+      - ".tflint.hcl"
+      - ".github/workflows/terraform-ci.yml"
+      - "scripts/terraform-quality.sh"
+      - "docs/operations/terraform-ci.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  terraform-static-quality:
+    name: Terraform static quality
+    runs-on: ubuntu-latest
+
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.0"
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@v0.2.4
+
+      - name: Terraform fmt
+        run: |
+          {
+            echo "## Terraform Static Quality Gates"
+            echo ""
+            echo "- Terraform roots: infrastructure/bootstrap"
+            echo "- Backend mode: terraform init -backend=false"
+            echo "- AWS authentication: not used"
+          } >> "$GITHUB_STEP_SUMMARY"
+          terraform fmt -check -recursive infrastructure
+          echo "- Terraform fmt: passed" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Terraform init without backend
+        run: |
+          roots=(infrastructure/bootstrap)
+          for root in "${roots[@]}"; do
+            if [ -f "$root/.terraform.lock.hcl" ]; then
+              terraform -chdir="$root" init -backend=false -lockfile=readonly
+            else
+              terraform -chdir="$root" init -backend=false
+            fi
+          done
+          echo "- Terraform init backend=false: passed" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Terraform validate
+        run: |
+          roots=(infrastructure/bootstrap)
+          for root in "${roots[@]}"; do
+            terraform -chdir="$root" validate
+          done
+          echo "- Terraform validate: passed" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: TFLint init
+        run: |
+          tflint --init --config "$GITHUB_WORKSPACE/.tflint.hcl"
+          echo "- TFLint init: passed" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: TFLint
+        run: |
+          roots=(infrastructure/bootstrap)
+          for root in "${roots[@]}"; do
+            tflint --config "$GITHUB_WORKSPACE/.tflint.hcl" --chdir="$root"
+          done
+          echo "- TFLint: passed" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Trivy IaC scan
+        run: |
+          trivy config --severity LOW,MEDIUM --exit-code 0 infrastructure
+          trivy config --severity HIGH,CRITICAL --exit-code 1 infrastructure
+          echo "- Trivy IaC HIGH/CRITICAL scan: passed" >> "$GITHUB_STEP_SUMMARY"

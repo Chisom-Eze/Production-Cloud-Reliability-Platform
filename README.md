@@ -60,6 +60,7 @@ The platform demonstrates how production systems are designed, deployed, observe
 ## Stage 2A Documents
 
 - [Terraform Bootstrap](infrastructure/bootstrap/README.md)
+- [Terraform CI Static Quality Gates](docs/operations/terraform-ci.md)
 
 ## Stage 1 Local Commands
 

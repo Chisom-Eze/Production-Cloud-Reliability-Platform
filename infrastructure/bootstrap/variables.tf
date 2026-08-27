@@ -5,7 +5,7 @@ variable "aws_region" {
 
   validation {
     condition     = var.aws_region == "us-east-1"
-    error_message = "Bootstrap is intentionally scoped to us-east-1."
+    error_message = "Stage 2A bootstrap is intentionally scoped to us-east-1."
   }
 }
 
@@ -29,5 +29,6 @@ variable "github_oidc_audience" {
 variable "github_development_subject" {
   description = "Exact GitHub OIDC subject allowed to assume the development deployment role."
   type        = string
+  default     = "repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development"
 }
 
