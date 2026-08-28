@@ -49,7 +49,12 @@ Observability is designed around structured logs, correlation IDs, CloudWatch fo
 | SQS | Production async queue with DLQ, retries, duplicate-delivery handling | Planned AWS stage |
 | S3 | Durable generated CSV report storage | Planned AWS stage |
 
+<<<<<<< HEAD
 ## Reliability Model
+=======
+- [Terraform Bootstrap](infrastructure/bootstrap/README.md)
+- [Terraform CI Static Quality Gates](docs/operations/terraform-ci.md)
+>>>>>>> origin/main
 
 The application separates liveness and readiness:
 
