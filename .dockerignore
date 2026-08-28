@@ -19,6 +19,7 @@ backend.s3.tfbackend
 
 .env
 .env.*
+.env.example
 
 docs
 tests
