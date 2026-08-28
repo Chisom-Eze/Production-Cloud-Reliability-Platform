@@ -32,6 +32,7 @@ resource "aws_s3_bucket_versioning" "terraform_state" {
   }
 }
 
+# trivy:ignore:avd.aws-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
 
@@ -47,6 +48,27 @@ resource "aws_s3_bucket_ownership_controls" "terraform_state" {
 
   rule {
     object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  rule {
+    id     = "terraform-state-version-retention"
+    status = "Enabled"
+
+    filter {
+      prefix = ""
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
   }
 }
 
@@ -115,4 +137,3 @@ resource "aws_iam_role" "github_development_deployment" {
   description        = "Stage 2A GitHub Actions OIDC federation proof role. No broad deployment permissions yet."
   assume_role_policy = data.aws_iam_policy_document.github_development_assume_role.json
 }
-

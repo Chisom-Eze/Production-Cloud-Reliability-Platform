@@ -13,7 +13,6 @@ __pycache__/
 **/.terraform/*
 *.tfstate
 *.tfstate.*
-.terraform.lock.hcl
 
 # Terraform variable files - may contain secrets
 *.tfvars
@@ -33,3 +32,6 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+
+# Local Terraform backend configuration
+backend.s3.tfbackend
