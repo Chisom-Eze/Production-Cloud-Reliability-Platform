@@ -136,6 +136,12 @@ jobs:
             > security-reports/hadolint-api.json || status=$?
 
           docker run --rm \
+            -v "$PWD:/repo:ro" \ 
+            hadolint/hadolint:v2.15.1 \
+            hadolint --failure-threshold error -f json /repo/application/Dockerfile.nginx \
+            > security-reports/hadolint-nginx.json || status=$?
+
+          docker run --rm \
             -v "$PWD:/repo:ro" \
             hadolint/hadolint:v2.15.1 \
             hadolint --failure-threshold error -f json /repo/application/Dockerfile.worker \
@@ -160,6 +166,12 @@ jobs:
             -f application/Dockerfile.api \
             -t production-cloud-reliability-api:${GITHUB_SHA} \
             .
+
+          docker build \
+            -f application/Dockerfile.nginx \
+            -t production-cloud-reliability-nginx:${GITHUB_SHA} \
+            .
+
           docker build \
             -f application/Dockerfile.worker \
             -t production-cloud-reliability-worker:${GITHUB_SHA} \
@@ -168,7 +180,7 @@ jobs:
             echo "- Images built:"
             echo "  - production-cloud-reliability-api:${GITHUB_SHA}"
             echo "  - production-cloud-reliability-worker:${GITHUB_SHA}"
-            echo "  - nginx:1.30.4-alpine"
+            echo "  - production-cloud-reliability-nginx:${GITHUB_SHA}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Trivy image visibility scan
@@ -189,7 +201,7 @@ jobs:
             --format json \
             --output security-reports/trivy-nginx-all.json \
             --exit-code 0 \
-            nginx:1.30.4-alpine
+            production-cloud-reliability-nginx:${GITHUB_SHA}
 
       - name: Trivy image blocking scan
         run: |
@@ -206,7 +218,7 @@ jobs:
           trivy image --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --exit-code 1 \
-            nginx:1.30.4-alpine
+            production-cloud-reliability-nginx:${GITHUB_SHA}
 
           echo "- Trivy image result: passed for HIGH/CRITICAL vulnerabilities with available fixes" >> "$GITHUB_STEP_SUMMARY"
 

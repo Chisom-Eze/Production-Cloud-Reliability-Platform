@@ -55,7 +55,10 @@ services:
       - artifacts:/app/platform-artifacts
 
   nginx:
-    image: nginx:1.30.4-alpine
+    build:
+      context: .
+      dockerfile: application/Dockerfile.nginx
+    image: production-cloud-reliability-nginx:1.local
     ports:
       - "8080:8080"
     depends_on:

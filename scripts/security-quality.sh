@@ -63,15 +63,17 @@ gitleaks detect \
 
 echo "==> Hadolint Dockerfile analysis"
 run_hadolint application/Dockerfile.api "$REPORT_DIR/hadolint-api.json"
+run_hadolint application/Dockerfile.nginx "$REPORT_DIR/hadolint-nginx.json"
 run_hadolint application/Dockerfile.worker "$REPORT_DIR/hadolint-worker.json"
 
 API_IMAGE="production-cloud-reliability-api:${COMMIT_SHA}"
 WORKER_IMAGE="production-cloud-reliability-worker:${COMMIT_SHA}"
-NGINX_IMAGE="nginx:1.30.4-alpine"
+NGINX_IMAGE="production-cloud-reliability-nginx:${COMMIT_SHA}"
 
 echo "==> Build local CI-only images"
 docker build -f application/Dockerfile.api -t "$API_IMAGE" .
 docker build -f application/Dockerfile.worker -t "$WORKER_IMAGE" .
+docker build -f application/Dockerfile.nginx -t "$NGINX_IMAGE" .
 
 echo "==> Trivy image visibility scan"
 trivy image --severity HIGH,CRITICAL --format json --output "$REPORT_DIR/trivy-api-all.json" --exit-code 0 "$API_IMAGE"

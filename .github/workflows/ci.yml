@@ -60,6 +60,10 @@ jobs:
         run: |
           docker build -f application/Dockerfile.worker -t production-cloud-reliability-platform-worker:ci .
 
+      - name: Build Nginx Docker image
+        run: |
+          docker build -f application/Dockerfile.nginx -t production-cloud-reliability-platform-nginx:ci .
+
       - name: Start application dependencies
         run: |
           docker compose up -d postgres api
