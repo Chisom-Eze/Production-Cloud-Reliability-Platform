@@ -18,9 +18,9 @@ run_hadolint() {
   local output="$2"
 
   if command -v hadolint >/dev/null 2>&1; then
-    hadolint -f json "$dockerfile" > "$output"
+    hadolint --failure-threshold error -f json "$dockerfile" > "$output"
   elif command -v docker >/dev/null 2>&1; then
-    docker run --rm -i hadolint/hadolint:v2.15.1 hadolint -f json - < "$dockerfile" > "$output"
+    docker run --rm -i hadolint/hadolint:v2.15.1 hadolint --failure-threshold error -f json - < "$dockerfile" > "$output"
   else
     echo "missing required command: hadolint or docker" >&2
     echo "Install native hadolint or ensure Docker is available for the hadolint/hadolint:v2.15.1 fallback." >&2
