@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     service_name: str = "api"
     log_level: str = "INFO"
     database_url: str = "postgresql://platform:platform@postgres:5432/platform"
-    local_artifact_root: str = "/tmp/platform-artifacts"
+    local_artifact_root: str = "/app/platform-artifacts"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
