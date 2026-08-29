@@ -132,6 +132,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/repo:ro" \
             hadolint/hadolint:v2.15.1 \
+            hadolint \
             --failure-threshold error \
             -f json \
             /repo/application/Dockerfile.api \
@@ -140,6 +141,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/repo:ro" \
             hadolint/hadolint:v2.15.1 \
+            hadolint \
             --failure-threshold error \
             -f json \
             /repo/application/Dockerfile.nginx \
@@ -148,6 +150,7 @@ jobs:
           docker run --rm \
             -v "$PWD:/repo:ro" \
             hadolint/hadolint:v2.15.1 \
+            hadolint \
             --failure-threshold error \
             -f json \
             /repo/application/Dockerfile.worker \
