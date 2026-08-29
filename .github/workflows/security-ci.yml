@@ -131,20 +131,26 @@ jobs:
 
           docker run --rm \
             -v "$PWD:/repo:ro" \
-            hadolint/hadolint:v2.15.1
-            hadolint --failure-threshold error -f json /repo/application/Dockerfile.api \
+            hadolint/hadolint:v2.15.1 \
+            --failure-threshold error \
+            -f json \
+            /repo/application/Dockerfile.api \
             > security-reports/hadolint-api.json || status=$?
 
           docker run --rm \
-            -v "$PWD:/repo:ro" \ 
-            hadolint/hadolint:v2.15.1
-            hadolint --failure-threshold error -f json /repo/application/Dockerfile.nginx \
+            -v "$PWD:/repo:ro" \
+            hadolint/hadolint:v2.15.1 \
+            --failure-threshold error \
+            -f json \
+            /repo/application/Dockerfile.nginx \
             > security-reports/hadolint-nginx.json || status=$?
 
           docker run --rm \
             -v "$PWD:/repo:ro" \
-            hadolint/hadolint:v2.15.1
-            hadolint --failure-threshold error -f json /repo/application/Dockerfile.worker \
+            hadolint/hadolint:v2.15.1 \
+            --failure-threshold error \
+            -f json \
+            /repo/application/Dockerfile.worker \
             > security-reports/hadolint-worker.json || status=$?
 
           if [ "$status" -ne 0 ]; then
