@@ -32,7 +32,10 @@ resource "aws_s3_bucket_versioning" "terraform_state" {
   }
 }
 
-# trivy:ignore:avd.aws-0132
+# Accepted risk: SSE-S3 is intentionally retained for this project for
+# cost and operational simplicity. State remains encrypted, private,
+# versioned and IAM-controlled.
+#trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
 

@@ -82,7 +82,8 @@ pytest
 docker compose config
 docker build -f application/Dockerfile.api -t production-cloud-reliability-platform-api:local .
 docker build -f application/Dockerfile.worker -t production-cloud-reliability-platform-worker:local .
-docker run --rm -v "$PWD/application/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine nginx -t
+docker compose up -d postgres api
+docker compose run --rm --no-deps nginx nginx -t
 ```
 
 ## Why CI And CD Are Separate Concerns

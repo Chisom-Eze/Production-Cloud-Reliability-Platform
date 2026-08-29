@@ -1,0 +1,240 @@
+name: Application and Supply-Chain Security
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "application/**"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - ".github/workflows/security-ci.yml"
+      - "scripts/security-quality.sh"
+      - "docs/operations/security-ci.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-security:
+    name: Python SAST and dependency audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install security tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install bandit pip-audit
+
+      - name: Bandit Python SAST
+        run: |
+          mkdir -p security-reports
+          bandit -r application \
+            -ll \
+            -ii \
+            -f json \
+            -o security-reports/bandit.json
+          {
+            echo "## Application Security CI"
+            echo ""
+            echo "- Commit SHA: $GITHUB_SHA"
+            echo "- Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- Bandit result: passed"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: pip-audit dependency scan
+        run: |
+          pip-audit -r requirements.txt \
+            --format json \
+            --output security-reports/pip-audit.json
+          echo "- pip-audit result: passed" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Python security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-security-reports
+          path: security-reports/
+          if-no-files-found: ignore
+
+  secret-scan:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository with history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks with redacted output
+        run: |
+          mkdir -p security-reports
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:latest detect \
+              --source=/repo \
+              --redact \
+              --no-banner \
+              --report-format=json \
+              --report-path=/repo/security-reports/gitleaks.json
+          {
+            echo "## Secret Scan"
+            echo ""
+            echo "- Commit SHA: $GITHUB_SHA"
+            echo "- Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- Gitleaks result: passed"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload redacted Gitleaks report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-redacted-report
+          path: security-reports/gitleaks.json
+          if-no-files-found: ignore
+
+  container-security:
+    name: Dockerfile and image security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@e07451d2e059ed86c2870430ea286b3a9e0bf241
+        with:
+          version: v0.73.0
+          cache: true
+
+      - name: Hadolint Dockerfiles
+        run: |
+          mkdir -p security-reports
+          status=0
+
+          docker run --rm \
+            -v "$PWD:/repo:ro" \
+            hadolint/hadolint:v2.15.1 \
+            hadolint \
+            --failure-threshold error \
+            -f json \
+            /repo/application/Dockerfile.api \
+            > security-reports/hadolint-api.json || status=$?
+
+          docker run --rm \
+            -v "$PWD:/repo:ro" \
+            hadolint/hadolint:v2.15.1 \
+            hadolint \
+            --failure-threshold error \
+            -f json \
+            /repo/application/Dockerfile.nginx \
+            > security-reports/hadolint-nginx.json || status=$?
+
+          docker run --rm \
+            -v "$PWD:/repo:ro" \
+            hadolint/hadolint:v2.15.1 \
+            hadolint \
+            --failure-threshold error \
+            -f json \
+            /repo/application/Dockerfile.worker \
+            > security-reports/hadolint-worker.json || status=$?
+
+          if [ "$status" -ne 0 ]; then
+            echo "Hadolint found Dockerfile issues. Review security-reports artifacts." >&2
+            exit "$status"
+          fi
+
+          {
+            echo "## Container Security CI"
+            echo ""
+            echo "- Commit SHA: $GITHUB_SHA"
+            echo "- Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- Hadolint result: passed"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build CI images
+        run: |
+          docker build \
+            -f application/Dockerfile.api \
+            -t production-cloud-reliability-api:${GITHUB_SHA} \
+            .
+
+          docker build \
+            -f application/Dockerfile.nginx \
+            -t production-cloud-reliability-nginx:${GITHUB_SHA} \
+            .
+
+          docker build \
+            -f application/Dockerfile.worker \
+            -t production-cloud-reliability-worker:${GITHUB_SHA} \
+            .
+          {
+            echo "- Images built:"
+            echo "  - production-cloud-reliability-api:${GITHUB_SHA}"
+            echo "  - production-cloud-reliability-worker:${GITHUB_SHA}"
+            echo "  - production-cloud-reliability-nginx:${GITHUB_SHA}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Trivy image visibility scan
+        run: |
+          trivy image --severity HIGH,CRITICAL \
+            --format json \
+            --output security-reports/trivy-api-all.json \
+            --exit-code 0 \
+            production-cloud-reliability-api:${GITHUB_SHA}
+
+          trivy image --severity HIGH,CRITICAL \
+            --format json \
+            --output security-reports/trivy-worker-all.json \
+            --exit-code 0 \
+            production-cloud-reliability-worker:${GITHUB_SHA}
+
+          trivy image --severity HIGH,CRITICAL \
+            --format json \
+            --output security-reports/trivy-nginx-all.json \
+            --exit-code 0 \
+            production-cloud-reliability-nginx:${GITHUB_SHA}
+
+      - name: Trivy image blocking scan
+        run: |
+          trivy image --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            production-cloud-reliability-api:${GITHUB_SHA}
+
+          trivy image --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            production-cloud-reliability-worker:${GITHUB_SHA}
+
+          trivy image --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            production-cloud-reliability-nginx:${GITHUB_SHA}
+
+          echo "- Trivy image result: passed for HIGH/CRITICAL vulnerabilities with available fixes" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload container security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-security-reports
+          path: security-reports/
+          if-no-files-found: ignore
