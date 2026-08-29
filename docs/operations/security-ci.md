@@ -50,7 +50,7 @@ Hadolint does not replace image vulnerability scanning. It checks how images are
 
 ## Trivy Image Vulnerability Scanning
 
-Trivy scans the final built API and worker images. The workflow also scans the upstream `nginx:1.27-alpine` runtime image because the repository uses that exact image in Docker Compose instead of building a custom Nginx image.
+Trivy scans the final built API and worker images. The workflow also scans the upstream `nginx:1.30.4-alpine` runtime image because the repository uses that exact image in Docker Compose instead of building a custom Nginx image.
 
 The workflow runs two Trivy passes:
 

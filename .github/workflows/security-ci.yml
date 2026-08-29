@@ -168,7 +168,7 @@ jobs:
             echo "- Images built:"
             echo "  - production-cloud-reliability-api:${GITHUB_SHA}"
             echo "  - production-cloud-reliability-worker:${GITHUB_SHA}"
-            echo "  - nginx:1.27-alpine"
+            echo "  - nginx:1.30.4-alpine"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Trivy image visibility scan
@@ -189,7 +189,7 @@ jobs:
             --format json \
             --output security-reports/trivy-nginx-all.json \
             --exit-code 0 \
-            nginx:1.27-alpine
+            nginx:1.30.4-alpine
 
       - name: Trivy image blocking scan
         run: |
@@ -206,7 +206,7 @@ jobs:
           trivy image --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --exit-code 1 \
-            nginx:1.27-alpine
+            nginx:1.30.4-alpine
 
           echo "- Trivy image result: passed for HIGH/CRITICAL vulnerabilities with available fixes" >> "$GITHUB_STEP_SUMMARY"
 

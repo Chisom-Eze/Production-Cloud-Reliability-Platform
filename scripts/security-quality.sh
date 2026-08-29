@@ -67,7 +67,7 @@ run_hadolint application/Dockerfile.worker "$REPORT_DIR/hadolint-worker.json"
 
 API_IMAGE="production-cloud-reliability-api:${COMMIT_SHA}"
 WORKER_IMAGE="production-cloud-reliability-worker:${COMMIT_SHA}"
-NGINX_IMAGE="nginx:1.27-alpine"
+NGINX_IMAGE="nginx:1.30.4-alpine"
 
 echo "==> Build local CI-only images"
 docker build -f application/Dockerfile.api -t "$API_IMAGE" .

@@ -67,4 +67,5 @@ jobs:
 
       - name: Validate Nginx configuration
         run: |
+          docker compose run up -d postgres api
           docker compose run --rm --no-deps nginx nginx -t
