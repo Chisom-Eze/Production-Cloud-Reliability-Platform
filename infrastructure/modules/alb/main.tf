@@ -35,6 +35,7 @@ resource "aws_s3_bucket_ownership_controls" "access_logs" {
   }
 }
 
+#trivy:ignore:AVD-AWS-0132 ALB log delivery uses the project-standard SSE-S3/AES256 policy.
 resource "aws_s3_bucket_server_side_encryption_configuration" "access_logs" {
   bucket = aws_s3_bucket.access_logs.id
 
@@ -98,7 +99,7 @@ data "aws_iam_policy_document" "access_logs" {
     condition {
       test     = "ArnLike"
       variable = "aws:SourceArn"
-      values   = ["arn:aws:elasticloadbalancing:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:loadbalancer/*"]
+      values   = ["arn:aws:elasticloadbalancing:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:loadbalancer/*"]
     }
 
     condition {
@@ -136,6 +137,7 @@ resource "aws_s3_bucket_policy" "access_logs" {
   policy = data.aws_iam_policy_document.access_logs.json
 }
 
+#trivy:ignore:AVD-AWS-0053 Public ALB is intentional Internet ingress; ECS tasks stay private behind WAF/ALB.
 resource "aws_lb" "this" {
   name               = "${local.name_prefix}-alb"
   internal           = false

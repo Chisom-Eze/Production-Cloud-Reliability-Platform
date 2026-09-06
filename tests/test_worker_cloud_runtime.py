@@ -5,7 +5,12 @@ from uuid import uuid4
 import pytest
 
 from application.shared.repository import LostJobClaimError
-from application.worker.main import JobProcessStatus, consume_one_message, dispatch_outbox, process_job
+from application.worker.main import (
+    JobProcessStatus,
+    consume_one_message,
+    dispatch_outbox,
+    process_job,
+)
 
 
 class FakeRepository:
@@ -55,7 +60,10 @@ class FakeRepository:
 
     def renew_job_processing_lease(self, job_id, processing_token):
         job = self.jobs[job_id]
-        if job["status"] == "processing" and job["processing_token"] == processing_token:
+        if (
+            job["status"] == "processing"
+            and job["processing_token"] == processing_token
+        ):
             job["processing_started_at"] = self.now
             self.renewals.append((job_id, processing_token))
             return True
@@ -64,18 +72,33 @@ class FakeRepository:
     def get_job(self, job_id):
         return dict(self.jobs[job_id])
 
-    def complete_job_with_report(self, job_id, processing_token, result, object_key, object_type):
+    def complete_job_with_report(
+        self, job_id, processing_token, result, object_key, object_type
+    ):
         job = self.jobs[job_id]
         if job["status"] != "processing" or job["processing_token"] != processing_token:
             raise LostJobClaimError("lost claim")
-        job.update({"status": "completed", "processing_token": None, "processing_started_at": None})
+        job.update(
+            {
+                "status": "completed",
+                "processing_token": None,
+                "processing_started_at": None,
+            }
+        )
         self.completed.append((job_id, result, object_key, object_type))
 
     def fail_job(self, job_id, processing_token, error):
         job = self.jobs[job_id]
         if job["status"] != "processing" or job["processing_token"] != processing_token:
             return False
-        job.update({"status": "failed", "processing_token": None, "processing_started_at": None, "last_error": error})
+        job.update(
+            {
+                "status": "failed",
+                "processing_token": None,
+                "processing_started_at": None,
+                "last_error": error,
+            }
+        )
         self.failed.append((job_id, error))
         return True
 
@@ -106,16 +129,38 @@ class FakeRepository:
         if self.force_publish_mark_failure:
             return False
         for event in self.outbox:
-            if event["id"] == event_id and event["status"] == "publishing" and event["claim_token"] == claim_token:
-                event.update({"status": "published", "claim_token": None, "locked_at": None, "last_error": None})
+            if (
+                event["id"] == event_id
+                and event["status"] == "publishing"
+                and event["claim_token"] == claim_token
+            ):
+                event.update(
+                    {
+                        "status": "published",
+                        "claim_token": None,
+                        "locked_at": None,
+                        "last_error": None,
+                    }
+                )
                 self.published.append(event_id)
                 return True
         return False
 
     def mark_outbox_failed(self, event_id, claim_token, error):
         for event in self.outbox:
-            if event["id"] == event_id and event["status"] == "publishing" and event["claim_token"] == claim_token:
-                event.update({"status": "failed", "claim_token": None, "locked_at": None, "last_error": error})
+            if (
+                event["id"] == event_id
+                and event["status"] == "publishing"
+                and event["claim_token"] == claim_token
+            ):
+                event.update(
+                    {
+                        "status": "failed",
+                        "claim_token": None,
+                        "locked_at": None,
+                        "last_error": error,
+                    }
+                )
                 self.outbox_failures.append((event_id, error))
                 return True
         return False
@@ -221,7 +266,9 @@ def test_stale_worker_cannot_complete_after_newer_reclaim():
     newer_claim = repository.mark_job_processing(job_id, 120)
 
     with pytest.raises(LostJobClaimError):
-        repository.complete_job_with_report(job_id, old_token, {"ok": True}, "old.csv", "text/csv")
+        repository.complete_job_with_report(
+            job_id, old_token, {"ok": True}, "old.csv", "text/csv"
+        )
 
     assert newer_claim["processing_token"] != old_token
     assert repository.completed == []
@@ -245,7 +292,10 @@ def test_duplicate_completed_job_does_not_create_another_artifact():
     repository.add_job(job_id)
 
     assert process_job(repository, artifact_store, job_id) == JobProcessStatus.COMPLETED
-    assert process_job(repository, artifact_store, job_id) == JobProcessStatus.DUPLICATE_COMPLETED
+    assert (
+        process_job(repository, artifact_store, job_id)
+        == JobProcessStatus.DUPLICATE_COMPLETED
+    )
 
     assert artifact_store.puts == 1
 
@@ -275,14 +325,22 @@ def test_outbox_pending_event_can_be_claimed():
 
 def test_fresh_publishing_outbox_event_cannot_be_reclaimed():
     repository = FakeRepository()
-    repository.outbox = [make_outbox_event(uuid4(), status="publishing", locked_at=990, claim_token=uuid4())]
+    repository.outbox = [
+        make_outbox_event(
+            uuid4(), status="publishing", locked_at=990, claim_token=uuid4()
+        )
+    ]
 
     assert repository.claim_outbox_events(10, 120) == []
 
 
 def test_stale_publishing_outbox_event_can_be_reclaimed():
     repository = FakeRepository()
-    repository.outbox = [make_outbox_event(uuid4(), status="publishing", locked_at=800, claim_token=uuid4())]
+    repository.outbox = [
+        make_outbox_event(
+            uuid4(), status="publishing", locked_at=800, claim_token=uuid4()
+        )
+    ]
 
     assert len(repository.claim_outbox_events(10, 120)) == 1
 
@@ -290,7 +348,11 @@ def test_stale_publishing_outbox_event_can_be_reclaimed():
 def test_reclaimed_outbox_event_receives_new_claim_token():
     repository = FakeRepository()
     old_token = uuid4()
-    repository.outbox = [make_outbox_event(uuid4(), status="publishing", locked_at=800, claim_token=old_token)]
+    repository.outbox = [
+        make_outbox_event(
+            uuid4(), status="publishing", locked_at=800, claim_token=old_token
+        )
+    ]
 
     claimed = repository.claim_outbox_events(10, 120)
 
@@ -300,7 +362,9 @@ def test_reclaimed_outbox_event_receives_new_claim_token():
 def test_stale_outbox_claimant_cannot_mark_newer_claim_published():
     repository = FakeRepository()
     old_token = uuid4()
-    event = make_outbox_event(uuid4(), status="publishing", locked_at=800, claim_token=old_token)
+    event = make_outbox_event(
+        uuid4(), status="publishing", locked_at=800, claim_token=old_token
+    )
     repository.outbox = [event]
     repository.claim_outbox_events(10, 120)
 
@@ -311,11 +375,15 @@ def test_stale_outbox_claimant_cannot_mark_newer_claim_published():
 def test_stale_outbox_claimant_cannot_mark_newer_claim_failed():
     repository = FakeRepository()
     old_token = uuid4()
-    event = make_outbox_event(uuid4(), status="publishing", locked_at=800, claim_token=old_token)
+    event = make_outbox_event(
+        uuid4(), status="publishing", locked_at=800, claim_token=old_token
+    )
     repository.outbox = [event]
     repository.claim_outbox_events(10, 120)
 
-    assert repository.mark_outbox_failed(event["id"], old_token, "RuntimeError") is False
+    assert (
+        repository.mark_outbox_failed(event["id"], old_token, "RuntimeError") is False
+    )
     assert event["status"] == "publishing"
 
 
@@ -353,7 +421,9 @@ def test_processing_failure_does_not_delete_sqs_message():
     repository.add_job(job_id)
     consumer = FakeConsumer((job_id, "receipt-1"))
 
-    assert consume_one_message(repository, FakeArtifactStore(fail=True), consumer) is False
+    assert (
+        consume_one_message(repository, FakeArtifactStore(fail=True), consumer) is False
+    )
 
     assert consumer.deleted == []
     assert repository.failed[0][0] == job_id
