@@ -143,3 +143,13 @@ def test_metrics_endpoint_exposes_prometheus_text(client_and_fakes):
     assert response.status_code == 200
     assert "app_http_requests_total" in response.text
 
+
+def test_metrics_use_route_templates_not_unbounded_ids(client_and_fakes):
+    client, _, _ = client_and_fakes
+    job_id = "11111111-1111-1111-1111-111111111111"
+
+    client.get(f"/jobs/{job_id}")
+    response = client.get("/metrics")
+
+    assert job_id not in response.text
+    assert 'route="/jobs/{job_id}"' in response.text

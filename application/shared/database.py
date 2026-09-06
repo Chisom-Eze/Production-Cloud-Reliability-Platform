@@ -8,9 +8,9 @@ from psycopg_pool import ConnectionPool, PoolTimeout
 
 
 class Database:
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, conninfo: str) -> None:
         self._pool = ConnectionPool(
-            conninfo=database_url,
+            conninfo=conninfo,
             min_size=1,
             max_size=10,
             kwargs={"row_factory": dict_row},

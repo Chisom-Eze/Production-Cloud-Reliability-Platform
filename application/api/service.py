@@ -11,10 +11,13 @@ class ApplicationService:
         self.publisher = publisher
 
     def create_job(self, job_type: str, payload: dict):
-        job = self.repository.create_job(job_type, payload)
-        self.publisher.publish(job["id"], correlation_id_var.get())
+        correlation_id = correlation_id_var.get()
+        try:
+            job = self.repository.create_job(job_type, payload, correlation_id)
+        except TypeError:
+            job = self.repository.create_job(job_type, payload)
+        self.publisher.publish(job["id"], correlation_id)
         return job
 
     def get_job(self, job_id: UUID):
         return self.repository.get_job(job_id)
-

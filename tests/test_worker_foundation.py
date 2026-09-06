@@ -9,27 +9,34 @@ class FakeRepository:
         self.processing_attempts = 0
         self.result = None
         self.object_key = None
+        self.processing_token = uuid4()
 
-    def mark_job_processing(self, job_id):
+    def mark_job_processing(self, job_id, lease_seconds=120):
         self.processing_attempts += 1
         if self.completed:
             return None
+        self.processing_token = uuid4()
         return {
             "id": job_id,
             "job_type": "csv_report",
             "status": "processing",
             "payload": {},
             "attempts": self.processing_attempts,
+            "processing_token": self.processing_token,
         }
 
     def get_job(self, job_id):
         return {"id": job_id, "status": "completed" if self.completed else "pending"}
 
-    def complete_job_with_report(self, job_id, result, object_key, object_type):
+    def complete_job_with_report(self, job_id, processing_token, result, object_key, object_type):
+        assert processing_token == self.processing_token
         self.completed = True
         self.result = result
         self.object_key = object_key
         self.object_type = object_type
+
+    def fail_job(self, job_id, processing_token, error):
+        return processing_token == self.processing_token
 
 
 class FakeArtifactStore:
@@ -47,4 +54,3 @@ def test_process_job_generates_report_metadata():
     assert repository.object_key.startswith(f"reports/{job_id}/")
     assert repository.object_key.endswith(".csv")
     assert repository.result["rows"] == 3
-
