@@ -3,7 +3,7 @@ import signal
 import threading
 import time
 from enum import Enum
-from typing import Any
+from typing import Any, Self
 from uuid import UUID
 
 from application.shared.adapters import (
@@ -60,9 +60,11 @@ class VisibilityHeartbeat:
         self.visibility_timeout_seconds = visibility_timeout_seconds
         self.heartbeat_seconds = heartbeat_seconds
         self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, name="sqs-visibility-heartbeat", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="sqs-visibility-heartbeat", daemon=True
+        )
 
-    def __enter__(self) -> "VisibilityHeartbeat":
+    def __enter__(self) -> Self:
         self._thread.start()
         return self
 
@@ -72,21 +74,33 @@ class VisibilityHeartbeat:
 
     def _run(self) -> None:
         while not self._stop.wait(self.heartbeat_seconds):
-            lease_renewed = self.repository.renew_job_processing_lease(self.job_id, self.processing_token)
+            lease_renewed = self.repository.renew_job_processing_lease(
+                self.job_id, self.processing_token
+            )
             if not lease_renewed:
-                WORKER_VISIBILITY_HEARTBEAT_FAILURES.labels(operation="db_lease_renewal").inc()
+                WORKER_VISIBILITY_HEARTBEAT_FAILURES.labels(
+                    operation="db_lease_renewal"
+                ).inc()
                 logger.warning(
                     "job processing lease renewal skipped because ownership was lost",
                     extra={"service": "worker", "job_id": str(self.job_id)},
                 )
                 return
             try:
-                self.consumer.change_visibility(self.receipt_handle, self.visibility_timeout_seconds)
-            except Exception as exc:
-                WORKER_VISIBILITY_HEARTBEAT_FAILURES.labels(operation="sqs_change_visibility").inc()
+                self.consumer.change_visibility(
+                    self.receipt_handle, self.visibility_timeout_seconds
+                )
+            except Exception as exc:  # noqa: BLE001 - record heartbeat retry evidence.
+                WORKER_VISIBILITY_HEARTBEAT_FAILURES.labels(
+                    operation="sqs_change_visibility"
+                ).inc()
                 logger.warning(
                     "SQS visibility heartbeat failed",
-                    extra={"service": "worker", "job_id": str(self.job_id), "error_type": type(exc).__name__},
+                    extra={
+                        "service": "worker",
+                        "job_id": str(self.job_id),
+                        "error_type": type(exc).__name__,
+                    },
                 )
 
 
@@ -96,26 +110,37 @@ def _request_shutdown(signum, _frame) -> None:
     logger.info("shutdown requested", extra={"service": "worker"})
 
 
-def claim_job(repository: Repository, job_id: UUID, lease_seconds: int) -> dict[str, Any] | JobProcessStatus:
+def claim_job(
+    repository: Repository, job_id: UUID, lease_seconds: int
+) -> dict[str, Any] | JobProcessStatus:
     job = repository.mark_job_processing(job_id, lease_seconds)
     if job is None:
         existing = repository.get_job(job_id)
         if existing["status"] == "completed":
             WORKER_DUPLICATE_JOBS.labels(result="completed").inc()
             WORKER_JOB_CLAIMS.labels(result="duplicate_completed").inc()
-            logger.info("duplicate completed job ignored", extra={"service": "worker", "job_id": str(job_id)})
+            logger.info(
+                "duplicate completed job ignored",
+                extra={"service": "worker", "job_id": str(job_id)},
+            )
             return JobProcessStatus.DUPLICATE_COMPLETED
         WORKER_JOB_CLAIMS.labels(result="in_progress_not_owned").inc()
         logger.info(
             "job is currently processing under another valid claim",
-            extra={"service": "worker", "job_id": str(job_id), "status": existing["status"]},
+            extra={
+                "service": "worker",
+                "job_id": str(job_id),
+                "status": existing["status"],
+            },
         )
         return JobProcessStatus.IN_PROGRESS_NOT_OWNED
     WORKER_JOB_CLAIMS.labels(result="acquired").inc()
     return job
 
 
-def complete_claimed_job(repository: Repository, artifact_store: ArtifactStore, job: dict[str, Any]) -> JobProcessStatus:
+def complete_claimed_job(
+    repository: Repository, artifact_store: ArtifactStore, job: dict[str, Any]
+) -> JobProcessStatus:
     job_id = job["id"]
     job_type = job["job_type"]
     started = time.perf_counter()
@@ -130,14 +155,22 @@ def complete_claimed_job(repository: Repository, artifact_store: ArtifactStore, 
             with worker_tracer.start_as_current_span("artifact.write"):
                 object_key, object_type = artifact_store.put_csv_report(job_id, rows)
             result = {"report_key": object_key, "rows": len(rows)}
-            repository.complete_job_with_report(job_id, job["processing_token"], result, object_key, object_type)
+            repository.complete_job_with_report(
+                job_id, job["processing_token"], result, object_key, object_type
+            )
             WORKER_JOBS_PROCESSED.labels(job_type=job_type, result="success").inc()
-            WORKER_JOB_DURATION.labels(job_type=job_type, result="success").observe(time.perf_counter() - started)
-            logger.info("job completed", extra={"service": "worker", "job_id": str(job_id)})
+            WORKER_JOB_DURATION.labels(job_type=job_type, result="success").observe(
+                time.perf_counter() - started
+            )
+            logger.info(
+                "job completed", extra={"service": "worker", "job_id": str(job_id)}
+            )
             return JobProcessStatus.COMPLETED
-        except Exception:
+        except Exception:  # noqa: BLE001 - mark metrics for processing failures.
             WORKER_JOBS_PROCESSED.labels(job_type=job_type, result="failure").inc()
-            WORKER_JOB_DURATION.labels(job_type=job_type, result="failure").observe(time.perf_counter() - started)
+            WORKER_JOB_DURATION.labels(job_type=job_type, result="failure").observe(
+                time.perf_counter() - started
+            )
             raise
 
 
@@ -154,12 +187,17 @@ def process_job(
         return complete_claimed_job(repository, artifact_store, job)
     except LostJobClaimError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001 - update durable failure state.
         repository.fail_job(job_id, job["processing_token"], "JobProcessingError")
         raise
 
 
-def dispatch_outbox(repository: Repository, publisher: JobPublisher, limit: int = 10, lease_seconds: int = 120) -> int:
+def dispatch_outbox(
+    repository: Repository,
+    publisher: JobPublisher,
+    limit: int = 10,
+    lease_seconds: int = 120,
+) -> int:
     dispatched = 0
     with worker_tracer.start_as_current_span("outbox.dispatch"):
         for event in repository.claim_outbox_events(limit, lease_seconds):
@@ -172,16 +210,22 @@ def dispatch_outbox(repository: Repository, publisher: JobPublisher, limit: int 
                 WORKER_OUTBOX_DISPATCH.labels(result="attempt").inc()
                 if event["event_type"] != "job.created" or event["version"] != 1:
                     raise ValueError("unsupported outbox event schema")
-                publisher.publish(UUID(str(payload["job_id"])), payload.get("correlation_id"))
+                publisher.publish(
+                    UUID(str(payload["job_id"])), payload.get("correlation_id")
+                )
                 if repository.mark_outbox_published(event_id, claim_token):
                     WORKER_OUTBOX_DISPATCH.labels(result="success").inc()
                     dispatched += 1
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - outbox retry needs failure capture.
                 WORKER_OUTBOX_DISPATCH.labels(result="failure").inc()
                 repository.mark_outbox_failed(event_id, claim_token, type(exc).__name__)
                 logger.warning(
                     "outbox dispatch failed",
-                    extra={"service": "worker", "event_id": str(event_id), "error_type": type(exc).__name__},
+                    extra={
+                        "service": "worker",
+                        "event_id": str(event_id),
+                        "error_type": type(exc).__name__,
+                    },
                 )
     return dispatched
 
@@ -198,8 +242,11 @@ def consume_one_message(
     with worker_tracer.start_as_current_span("sqs.consume"):
         try:
             message = consumer.receive_job()
-        except Exception as exc:
-            logger.warning("invalid or unavailable SQS message", extra={"service": "worker", "error_type": type(exc).__name__})
+        except Exception as exc:  # noqa: BLE001 - keep worker alive on receive failure.
+            logger.warning(
+                "invalid or unavailable SQS message",
+                extra={"service": "worker", "error_type": type(exc).__name__},
+            )
             return False
     if message is None:
         return False
@@ -226,11 +273,16 @@ def consume_one_message(
         consumer.delete(receipt_handle)
         return True
     except LostJobClaimError:
-        logger.warning("job claim was lost before completion", extra={"service": "worker", "job_id": str(job_id)})
+        logger.warning(
+            "job claim was lost before completion",
+            extra={"service": "worker", "job_id": str(job_id)},
+        )
         return False
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - leave SQS message for retry/redrive.
         repository.fail_job(job_id, job["processing_token"], type(exc).__name__)
-        logger.exception("job processing failed", extra={"service": "worker", "job_id": str(job_id)})
+        logger.exception(
+            "job processing failed", extra={"service": "worker", "job_id": str(job_id)}
+        )
         return False
 
 
@@ -238,10 +290,16 @@ def run_idle_worker() -> None:
     settings = get_settings()
     configure_logging(settings.log_level, "worker")
     configure_tracing(settings, "production-cloud-reliability-worker")
-    if settings.metrics_enabled and not start_worker_metrics_server(settings.worker_metrics_host, settings.worker_metrics_port):
+    if settings.metrics_enabled and not start_worker_metrics_server(
+        settings.worker_metrics_host, settings.worker_metrics_port
+    ):
         logger.warning(
             "worker metrics endpoint failed to start",
-            extra={"service": "worker", "host": settings.worker_metrics_host, "port": settings.worker_metrics_port},
+            extra={
+                "service": "worker",
+                "host": settings.worker_metrics_host,
+                "port": settings.worker_metrics_port,
+            },
         )
     signal.signal(signal.SIGINT, _request_shutdown)
     signal.signal(signal.SIGTERM, _request_shutdown)
@@ -251,11 +309,20 @@ def run_idle_worker() -> None:
     try:
         repository = Repository(database)
         artifact_store = create_artifact_store(settings)
-        outbox_publisher = create_job_publisher(settings, direct_cloud_publish=settings.is_cloud)
+        outbox_publisher = create_job_publisher(
+            settings, direct_cloud_publish=settings.is_cloud
+        )
         consumer = create_job_consumer(settings) if settings.is_cloud else None
-        logger.info("worker started", extra={"service": "worker", "runtime_mode": settings.runtime_mode})
+        logger.info(
+            "worker started",
+            extra={"service": "worker", "runtime_mode": settings.runtime_mode},
+        )
         while not shutdown_requested:
-            dispatch_outbox(repository, outbox_publisher, lease_seconds=settings.outbox_claim_lease_seconds)
+            dispatch_outbox(
+                repository,
+                outbox_publisher,
+                lease_seconds=settings.outbox_claim_lease_seconds,
+            )
             if consumer is not None:
                 consume_one_message(
                     repository,

@@ -51,6 +51,7 @@ resource "aws_s3_bucket_versioning" "audit" {
   }
 }
 
+#trivy:ignore:AVD-AWS-0132 Audit bucket uses the frozen SSE-S3/AES256 policy; no CMK requirement exists.
 resource "aws_s3_bucket_server_side_encryption_configuration" "audit" {
   bucket = aws_s3_bucket.audit.id
 
@@ -134,6 +135,7 @@ resource "aws_s3_bucket_policy" "audit" {
   policy = data.aws_iam_policy_document.audit_bucket.json
 }
 
+#trivy:ignore:AVD-AWS-0015 CloudTrail audit bucket uses SSE-S3; CMK is intentionally deferred.
 resource "aws_cloudtrail" "account_audit" {
   name                          = local.trail_name
   s3_bucket_name                = aws_s3_bucket.audit.id
@@ -156,6 +158,7 @@ resource "aws_cloudtrail" "account_audit" {
   depends_on = [aws_s3_bucket_policy.audit]
 }
 
+#trivy:ignore:AVD-AWS-0095 Security SNS stays unencrypted until a CMK publisher policy is deliberately designed.
 resource "aws_sns_topic" "security_notifications" {
   name = "${local.name_prefix}-security-notifications"
 

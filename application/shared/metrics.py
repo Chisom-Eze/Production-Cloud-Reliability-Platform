@@ -1,6 +1,13 @@
 from time import perf_counter
 
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest, start_http_server
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+    start_http_server,
+)
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
@@ -69,20 +76,24 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             return response
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - record metrics, then re-raise.
             route = _route_template(request)
             APP_ERRORS.labels(route=route, error_type=type(exc).__name__).inc()
             raise
         finally:
             route = _route_template(request)
-            status_code = locals().get("response").status_code if "response" in locals() else 500
+            status_code = (
+                locals().get("response").status_code if "response" in locals() else 500
+            )
             status_class = f"{status_code // 100}xx"
             HTTP_REQUESTS.labels(
                 method=request.method,
                 route=route,
                 status_class=status_class,
             ).inc()
-            HTTP_DURATION.labels(method=request.method, route=route).observe(perf_counter() - started)
+            HTTP_DURATION.labels(method=request.method, route=route).observe(
+                perf_counter() - started
+            )
             HTTP_IN_FLIGHT.labels(method=request.method, route=in_flight_route).dec()
 
 
@@ -101,5 +112,5 @@ def start_worker_metrics_server(host: str, port: int) -> bool:
     try:
         start_http_server(port, addr=host)
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 - metrics startup is best-effort telemetry.
         return False

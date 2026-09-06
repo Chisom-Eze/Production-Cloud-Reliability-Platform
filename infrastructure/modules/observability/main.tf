@@ -134,6 +134,7 @@ resource "aws_grafana_workspace" "this" {
   })
 }
 
+#trivy:ignore:AVD-AWS-0095 Alarm SNS stays unencrypted until a CMK publisher policy is deliberately designed.
 resource "aws_sns_topic" "alarms" {
   name = local.alarm_topic_name
 

@@ -82,6 +82,7 @@ resource "aws_vpc_security_group_ingress_rule" "api_http_from_alb" {
   to_port                      = var.api_ingress_port
 }
 
+#trivy:ignore:AVD-AWS-0104 API egress is TCP/443-only through NAT for AWS APIs and legitimate external services.
 resource "aws_vpc_security_group_egress_rule" "api_https_to_ipv4" {
   security_group_id = aws_security_group.api.id
   description       = "Allow API HTTPS egress through NAT for AWS APIs and permitted external dependencies."
@@ -91,6 +92,7 @@ resource "aws_vpc_security_group_egress_rule" "api_https_to_ipv4" {
   to_port           = var.workload_https_egress_port
 }
 
+#trivy:ignore:AVD-AWS-0104 Worker egress is TCP/443-only through NAT for AWS APIs and legitimate external services.
 resource "aws_vpc_security_group_egress_rule" "worker_https_to_ipv4" {
   security_group_id = aws_security_group.worker.id
   description       = "Allow worker HTTPS egress through NAT for AWS APIs and permitted external dependencies."

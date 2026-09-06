@@ -32,6 +32,7 @@ resource "aws_s3_bucket_ownership_controls" "this" {
   }
 }
 
+#trivy:ignore:AVD-AWS-0132 Artifact bucket uses the frozen SSE-S3/AES256 policy; no CMK requirement exists.
 resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   bucket = aws_s3_bucket.this.id
 
