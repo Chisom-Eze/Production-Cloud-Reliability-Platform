@@ -7,6 +7,7 @@ from time import perf_counter
 from uuid import uuid4
 
 from fastapi import Request
+from opentelemetry import trace
 from starlette.middleware.base import BaseHTTPMiddleware
 
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
@@ -15,6 +16,14 @@ correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", defaul
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
+        span = trace.get_current_span()
+        span_context = span.get_span_context()
+        trace_id = None
+        span_id = None
+        if span_context.is_valid:
+            trace_id = format(span_context.trace_id, "032x")
+            span_id = format(span_context.span_id, "016x")
+
         payload = {
             "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
@@ -22,6 +31,8 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
             "request_id": request_id_var.get(),
             "correlation_id": correlation_id_var.get(),
+            "trace_id": trace_id,
+            "span_id": span_id,
         }
 
         for key in ("method", "path", "status_code", "latency_ms", "error", "job_id"):
@@ -89,4 +100,3 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         finally:
             request_id_var.reset(request_token)
             correlation_id_var.reset(correlation_token)
-

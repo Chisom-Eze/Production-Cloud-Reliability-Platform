@@ -58,14 +58,16 @@ services:
     build:
       context: .
       dockerfile: application/Dockerfile.nginx
-    image: production-cloud-reliability-nginx:1.local
+    image: production-cloud-reliability-nginx:local
+    environment:
+      NGINX_LISTEN_PORT: 8080
+      NGINX_UPSTREAM_HOST: api
+      NGINX_UPSTREAM_PORT: 8000
     ports:
       - "8080:8080"
     depends_on:
       api:
         condition: service_healthy
-    volumes:
-      - ./application/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null"]
       interval: 10s
@@ -75,4 +77,3 @@ services:
 volumes:
   postgres_data:
   artifacts:
-

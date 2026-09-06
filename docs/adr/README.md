@@ -80,6 +80,44 @@ Trade-off:
 
 - Nginx demonstrates reverse proxy concepts, access logging, timeout handling, security headers, and upstream diagnostics. ALB directly to FastAPI is simpler and often preferable when the application can handle these concerns cleanly. The sidecar must scale with API tasks so Nginx does not become a single point of failure.
 
+### ADR-008: Separate Immutable ECR Repositories Per Service
+
+Initial decision:
+
+- Use separate ECR repositories for API, worker, and Nginx images with immutable Git-SHA tags.
+
+Trade-off:
+
+- Separate repositories keep permissions, scanning evidence, lifecycle policy, and operational ownership clear per deployable component. A single repository with service-prefixed tags would be simpler to create, but it makes least-privilege IAM and per-component cleanup harder to reason about. Immutable tags prevent accidental replacement of reviewed artifacts; rollbacks will use previously captured image digests rather than mutable names such as `latest`.
+
+### ADR-009: Selective AWS-Service Routing: S3 Gateway Endpoint + Retained NAT
+
+Initial decision:
+
+- Keep the existing NAT Gateway and add a regional S3 Gateway VPC Endpoint for application-private route tables only.
+
+Trade-off:
+
+- The hybrid model moves same-Region S3 traffic, including application artifacts and ECR image-layer downloads, away from NAT without adding endpoint hourly charge. NAT remains for external APIs and AWS services whose interface endpoints are intentionally deferred until cost, security, or availability evidence justifies them.
+
+Full record:
+
+- [ADR-009](adr-009-selective-aws-service-routing.md)
+
+### ADR-010: Account Security Audit Plane: Multi-Region CloudTrail + Targeted EventBridge Security Alerts
+
+Initial decision:
+
+- Use a shared account-level multi-Region CloudTrail trail, dedicated audit bucket, targeted EventBridge security rules, and dedicated security SNS topic.
+
+Trade-off:
+
+- The selected audit plane provides durable account control-plane history, log file validation, and selected near-real-time notification without adding CloudTrail Lake, broad data events, Insights, Object Lock, CMK, SIEM integration, or automated remediation cost/complexity. It is not a full enterprise security platform and should be revisited when compliance, multi-account, immutable-retention, or data-event requirements emerge.
+
+Full record:
+
+- [ADR-010](adr-010-account-security-audit-plane.md)
+
 ## ADR Template For Later Stages
 
 Each ADR should include:

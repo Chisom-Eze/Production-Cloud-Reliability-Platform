@@ -13,7 +13,7 @@ from application.api.schemas import (
     ReadyResponse,
 )
 from application.api.service import ApplicationService
-from application.shared.adapters import LocalJobPublisher
+from application.shared.adapters import create_job_publisher
 from application.shared.config import Settings, get_settings
 from application.shared.database import Database
 from application.shared.logging import RequestContextMiddleware, configure_logging
@@ -23,6 +23,7 @@ from application.shared.repository import (
     NotFoundError,
     Repository,
 )
+from application.shared.telemetry import configure_tracing, instrument_fastapi
 
 logger = getLogger("application.api")
 
@@ -39,14 +40,16 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level, "api")
+    configure_tracing(settings, "production-cloud-reliability-api")
 
     database: Database | None = None
     owns_database = repository is None
     if repository is None:
-        database = Database(settings.database_url)
+        settings.validate_api_runtime()
+        database = Database(settings.database_conninfo())
         repository = Repository(database)
     if service is None:
-        service = ApplicationService(repository, LocalJobPublisher())
+        service = ApplicationService(repository, create_job_publisher(settings))
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -59,6 +62,7 @@ def create_app(
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.add_middleware(RequestContextMiddleware, service_name="api")
     app.add_middleware(PrometheusMiddleware)
+    instrument_fastapi(app)
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:

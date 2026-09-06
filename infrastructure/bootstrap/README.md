@@ -7,8 +7,10 @@ Stage 2A creates only the AWS identity and Terraform bootstrap layer:
 - Terraform state S3 bucket
 - GitHub Actions OIDC IAM identity provider
 - GitHub development deployment IAM role
+- ECR repositories for API, worker, and Nginx images
+- Least-privilege ECR image publishing permissions for the GitHub development deployment role
 
-It does not create ECR, ECS, VPC, RDS, ALB, SQS, application S3 buckets, Secrets Manager, or application infrastructure.
+It does not create ECS, VPC, RDS, ALB, SQS, application S3 buckets, Secrets Manager, deployment workflows, or application runtime infrastructure.
 
 ## Why Bootstrap Uses Local State First
 
@@ -38,7 +40,21 @@ This bootstrap uses S3 native locking through `use_lockfile = true` because it k
 
 The deployment role has a trust policy that defines who may assume the role. In this stage, only one exact GitHub Actions OIDC subject is trusted.
 
-The deployment role intentionally has no broad permissions policy yet. Trust answers "who can become this role"; permissions answer "what can this role do after it is assumed." Stage 2A proves federation before granting deployment power.
+The deployment role has a narrow permissions policy for ECR image publishing. Trust answers "who can become this role"; permissions answer "what can this role do after it is assumed." The role can authenticate to ECR and push project images, but it cannot create, delete, or administer ECR repositories.
+
+## ECR Image Publishing Scope
+
+Stage 3A creates three ECR repositories:
+
+- `production-cloud-reliability-api`
+- `production-cloud-reliability-worker`
+- `production-cloud-reliability-nginx`
+
+Each repository uses immutable image tags and AWS-managed AES-256 encryption. The lifecycle policy expires only untagged images older than 7 days. Tagged Git-SHA release artifacts are intentionally retained until deployment and rollback semantics are designed.
+
+The GitHub development deployment role receives only the ECR permissions required to authenticate, upload image layers, publish image manifests, and inspect the images it pushed. `ecr:GetAuthorizationToken` must use `Resource = "*"`, because the ECR authorization token API is not repository-scoped. The remaining ECR actions are restricted to the three repository ARNs created by this root.
+
+Repository creation, lifecycle configuration, tag mutability, and repository administration remain owned by Terraform, not GitHub Actions.
 
 ## Why `aud` And Exact `sub` Are Checked
 
@@ -129,6 +145,13 @@ aws_s3_bucket_lifecycle_configuration.terraform_state
 aws_s3_bucket_policy.terraform_state_tls_only
 aws_iam_openid_connect_provider.github_actions
 aws_iam_role.github_development_deployment
+aws_ecr_repository.application["api"]
+aws_ecr_repository.application["worker"]
+aws_ecr_repository.application["nginx"]
+aws_ecr_lifecycle_policy.application["api"]
+aws_ecr_lifecycle_policy.application["worker"]
+aws_ecr_lifecycle_policy.application["nginx"]
+aws_iam_role_policy.github_development_ecr_publish
 ```
 
 ## Rollback And Recovery Notes
