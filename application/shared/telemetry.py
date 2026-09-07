@@ -7,9 +7,9 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 from opentelemetry.sdk.resources import (
     DEPLOYMENT_ENVIRONMENT,
-    Resource,
     SERVICE_NAME,
     SERVICE_VERSION,
+    Resource,
 )
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
