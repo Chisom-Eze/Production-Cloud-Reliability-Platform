@@ -166,7 +166,11 @@ def complete_claimed_job(
                 "job completed", extra={"service": "worker", "job_id": str(job_id)}
             )
             return JobProcessStatus.COMPLETED
+<<<<<<< HEAD
+        except Exception:  # noqa: BLE001 - mark metrics for processing failures.
+=======
         except Exception:
+>>>>>>> origin/main
             WORKER_JOBS_PROCESSED.labels(job_type=job_type, result="failure").inc()
             WORKER_JOB_DURATION.labels(job_type=job_type, result="failure").observe(
                 time.perf_counter() - started
@@ -187,7 +191,11 @@ def process_job(
         return complete_claimed_job(repository, artifact_store, job)
     except LostJobClaimError:
         raise
+<<<<<<< HEAD
+    except Exception:  # noqa: BLE001 - update durable failure state.
+=======
     except Exception:
+>>>>>>> origin/main
         repository.fail_job(job_id, job["processing_token"], "JobProcessingError")
         raise
 
@@ -278,7 +286,11 @@ def consume_one_message(
             extra={"service": "worker", "job_id": str(job_id)},
         )
         return False
+<<<<<<< HEAD
+    except Exception as exc:  # noqa: BLE001 - leave SQS message for retry/redrive.
+=======
     except Exception as exc:
+>>>>>>> origin/main
         repository.fail_job(job_id, job["processing_token"], type(exc).__name__)
         logger.exception(
             "job processing failed", extra={"service": "worker", "job_id": str(job_id)}
