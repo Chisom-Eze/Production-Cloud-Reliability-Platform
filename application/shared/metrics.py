@@ -76,7 +76,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             return response
-        except Exception as exc:  # noqa: BLE001 - record metrics, then re-raise.
+        except Exception as exc:
             route = _route_template(request)
             APP_ERRORS.labels(route=route, error_type=type(exc).__name__).inc()
             raise
