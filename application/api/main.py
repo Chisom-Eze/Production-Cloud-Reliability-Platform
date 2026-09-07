@@ -29,7 +29,9 @@ logger = getLogger("application.api")
 
 
 def _database_unavailable(exc: Exception) -> HTTPException:
-    logger.warning("database operation failed", extra={"service": "api", "error": str(exc)})
+    logger.warning(
+        "database operation failed", extra={"service": "api", "error": str(exc)}
+    )
     return HTTPException(status_code=503, detail="database unavailable")
 
 
@@ -88,7 +90,9 @@ def create_app(
     def list_customers():
         return repository.list_customers()
 
-    @app.post("/customers", response_model=Customer, status_code=status.HTTP_201_CREATED)
+    @app.post(
+        "/customers", response_model=Customer, status_code=status.HTTP_201_CREATED
+    )
     def create_customer(payload: CustomerCreate):
         try:
             return repository.create_customer(payload.name, str(payload.email))

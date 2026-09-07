@@ -63,7 +63,9 @@ class Repository:
         except UniqueViolation as exc:
             raise DuplicateCustomerError("customer email already exists") from exc
 
-    def create_job(self, job_type: str, payload: dict[str, Any], correlation_id: str | None = None) -> dict[str, Any]:
+    def create_job(
+        self, job_type: str, payload: dict[str, Any], correlation_id: str | None = None
+    ) -> dict[str, Any]:
         job_id = uuid4()
         outbox_payload = {
             "version": 1,
@@ -100,7 +102,9 @@ class Repository:
             )
             return dict(job)
 
-    def claim_outbox_events(self, limit: int = 10, lease_seconds: int = 120) -> list[dict[str, Any]]:
+    def claim_outbox_events(
+        self, limit: int = 10, lease_seconds: int = 120
+    ) -> list[dict[str, Any]]:
         claim_token = uuid4()
         with self.database.transaction() as connection:
             rows = connection.execute(
@@ -185,7 +189,9 @@ class Repository:
                 raise NotFoundError("job not found")
             return dict(row)
 
-    def mark_job_processing(self, job_id: UUID, lease_seconds: int = 120) -> dict[str, Any] | None:
+    def mark_job_processing(
+        self, job_id: UUID, lease_seconds: int = 120
+    ) -> dict[str, Any] | None:
         processing_token = uuid4()
         with self.database.transaction() as connection:
             row = connection.execute(
@@ -250,7 +256,9 @@ class Repository:
                 (job_id, processing_token),
             ).fetchone()
             if not fenced:
-                raise LostJobClaimError("job processing claim was lost before completion")
+                raise LostJobClaimError(
+                    "job processing claim was lost before completion"
+                )
             connection.execute(
                 """
                 INSERT INTO job_results (id, job_id, result)

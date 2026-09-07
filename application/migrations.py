@@ -27,7 +27,9 @@ def run_migrations() -> None:
             )
             applied = {
                 row["version"]
-                for row in connection.execute("SELECT version FROM schema_migrations").fetchall()
+                for row in connection.execute(
+                    "SELECT version FROM schema_migrations"
+                ).fetchall()
             }
             for migration_path in sorted(MIGRATION_DIR.glob("*.sql")):
                 if migration_path.name in applied:

@@ -110,7 +110,9 @@ def test_readiness_fails_when_database_unavailable():
 def test_customer_creation_and_retrieval(client_and_fakes):
     client, _, _ = client_and_fakes
 
-    created = client.post("/customers", json={"name": "Ada Lovelace", "email": "ada@example.com"})
+    created = client.post(
+        "/customers", json={"name": "Ada Lovelace", "email": "ada@example.com"}
+    )
     listed = client.get("/customers")
 
     assert created.status_code == 201

@@ -11,24 +11,21 @@ from application.shared.config import Settings
 
 
 class JobPublisher(Protocol):
-    def publish(self, job_id: UUID, correlation_id: str | None) -> None:
-        ...
+    def publish(self, job_id: UUID, correlation_id: str | None) -> None: ...
 
 
 class ArtifactStore(Protocol):
-    def put_csv_report(self, job_id: UUID, rows: list[dict[str, str]]) -> tuple[str, str]:
-        ...
+    def put_csv_report(
+        self, job_id: UUID, rows: list[dict[str, str]]
+    ) -> tuple[str, str]: ...
 
 
 class JobConsumer(Protocol):
-    def receive_job(self) -> tuple[UUID, str] | None:
-        ...
+    def receive_job(self) -> tuple[UUID, str] | None: ...
 
-    def change_visibility(self, receipt_handle: str, timeout_seconds: int) -> None:
-        ...
+    def change_visibility(self, receipt_handle: str, timeout_seconds: int) -> None: ...
 
-    def delete(self, receipt_handle: str) -> None:
-        ...
+    def delete(self, receipt_handle: str) -> None: ...
 
 
 class LocalJobPublisher:
@@ -68,7 +65,9 @@ class SqsJobPublisher:
 
 
 class SqsJobConsumer:
-    def __init__(self, queue_url: str, region_name: str, wait_time_seconds: int = 20) -> None:
+    def __init__(
+        self, queue_url: str, region_name: str, wait_time_seconds: int = 20
+    ) -> None:
         self.queue_url = queue_url
         self.wait_time_seconds = wait_time_seconds
         self.client = boto3.client("sqs", region_name=region_name)
@@ -89,7 +88,9 @@ class SqsJobConsumer:
         return UUID(str(payload["job_id"])), message["ReceiptHandle"]
 
     def delete(self, receipt_handle: str) -> None:
-        self.client.delete_message(QueueUrl=self.queue_url, ReceiptHandle=receipt_handle)
+        self.client.delete_message(
+            QueueUrl=self.queue_url, ReceiptHandle=receipt_handle
+        )
 
     def change_visibility(self, receipt_handle: str, timeout_seconds: int) -> None:
         self.client.change_message_visibility(
@@ -106,7 +107,9 @@ class LocalArtifactStore:
         self.root = Path(root)
         self.prefix = prefix.strip("/")
 
-    def put_csv_report(self, job_id: UUID, rows: list[dict[str, str]]) -> tuple[str, str]:
+    def put_csv_report(
+        self, job_id: UUID, rows: list[dict[str, str]]
+    ) -> tuple[str, str]:
         report_id = uuid4()
         object_key = f"{self.prefix}/{job_id}/{report_id}.csv"
         destination = self.root / object_key
@@ -119,12 +122,16 @@ class LocalArtifactStore:
 
 
 class S3ArtifactStore:
-    def __init__(self, bucket_name: str, region_name: str, prefix: str = "reports") -> None:
+    def __init__(
+        self, bucket_name: str, region_name: str, prefix: str = "reports"
+    ) -> None:
         self.bucket_name = bucket_name
         self.prefix = prefix.strip("/")
         self.client = boto3.client("s3", region_name=region_name)
 
-    def put_csv_report(self, job_id: UUID, rows: list[dict[str, str]]) -> tuple[str, str]:
+    def put_csv_report(
+        self, job_id: UUID, rows: list[dict[str, str]]
+    ) -> tuple[str, str]:
         report_id = uuid4()
         object_key = f"{self.prefix}/{job_id}/{report_id}.csv"
         output = io.StringIO()
@@ -141,7 +148,9 @@ class S3ArtifactStore:
         return object_key, "text/csv"
 
 
-def create_job_publisher(settings: Settings, *, direct_cloud_publish: bool = False) -> JobPublisher:
+def create_job_publisher(
+    settings: Settings, *, direct_cloud_publish: bool = False
+) -> JobPublisher:
     if settings.is_cloud:
         if direct_cloud_publish:
             settings.validate_queue()
@@ -158,5 +167,9 @@ def create_job_consumer(settings: Settings) -> JobConsumer:
 def create_artifact_store(settings: Settings) -> ArtifactStore:
     if settings.artifact_backend == "s3":
         settings.validate_artifact_store()
-        return S3ArtifactStore(settings.artifact_bucket_name or "", settings.aws_region, settings.artifact_prefix)
+        return S3ArtifactStore(
+            settings.artifact_bucket_name or "",
+            settings.aws_region,
+            settings.artifact_prefix,
+        )
     return LocalArtifactStore(settings.local_artifact_root, settings.artifact_prefix)

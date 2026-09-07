@@ -35,7 +35,9 @@ class FakeRepository:
     def get_job(self, job_id):
         return {"id": job_id, "status": self.status}
 
-    def complete_job_with_report(self, job_id, processing_token, result, object_key, object_type):
+    def complete_job_with_report(
+        self, job_id, processing_token, result, object_key, object_type
+    ):
         self.status = "completed"
         self.completed.append((job_id, result, object_key, object_type))
 
@@ -74,7 +76,9 @@ def test_worker_metrics_endpoint_failure_does_not_raise(monkeypatch):
     def fail_start_http_server(*_args, **_kwargs):
         raise OSError("port unavailable")
 
-    monkeypatch.setattr("application.shared.metrics.start_http_server", fail_start_http_server)
+    monkeypatch.setattr(
+        "application.shared.metrics.start_http_server", fail_start_http_server
+    )
 
     assert start_worker_metrics_server("127.0.0.1", 9464) is False
 
@@ -83,10 +87,15 @@ def test_successful_job_increments_success_metric():
     repository = FakeRepository()
     job_id = uuid4()
 
-    assert process_job(repository, FakeArtifactStore(), job_id) == JobProcessStatus.COMPLETED
+    assert (
+        process_job(repository, FakeArtifactStore(), job_id)
+        == JobProcessStatus.COMPLETED
+    )
 
     metrics = generate_latest().decode("utf-8")
-    assert 'worker_jobs_processed_total{job_type="csv_report",result="success"}' in metrics
+    assert (
+        'worker_jobs_processed_total{job_type="csv_report",result="success"}' in metrics
+    )
     assert str(job_id) not in metrics
 
 
@@ -95,10 +104,14 @@ def test_failed_job_increments_failure_metric_and_does_not_delete_message():
     job_id = uuid4()
     consumer = FakeConsumer(job_id)
 
-    assert consume_one_message(repository, FakeArtifactStore(fail=True), consumer) is False
+    assert (
+        consume_one_message(repository, FakeArtifactStore(fail=True), consumer) is False
+    )
 
     metrics = generate_latest().decode("utf-8")
-    assert 'worker_jobs_processed_total{job_type="csv_report",result="failure"}' in metrics
+    assert (
+        'worker_jobs_processed_total{job_type="csv_report",result="failure"}' in metrics
+    )
     assert consumer.deleted == []
 
 
@@ -106,7 +119,10 @@ def test_duplicate_handling_increments_bounded_duplicate_metric():
     repository = FakeRepository(status="completed")
     job_id = uuid4()
 
-    assert process_job(repository, FakeArtifactStore(), job_id) == JobProcessStatus.DUPLICATE_COMPLETED
+    assert (
+        process_job(repository, FakeArtifactStore(), job_id)
+        == JobProcessStatus.DUPLICATE_COMPLETED
+    )
 
     metrics = generate_latest().decode("utf-8")
     assert 'worker_duplicate_jobs_total{result="completed"}' in metrics

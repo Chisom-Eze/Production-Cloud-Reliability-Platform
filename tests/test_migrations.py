@@ -50,7 +50,9 @@ class FakeDatabase:
 def test_migration_runner_uses_advisory_lock(monkeypatch, tmp_path):
     migration_dir = tmp_path / "migrations"
     migration_dir.mkdir()
-    (migration_dir / "001_test.sql").write_text("CREATE TABLE example(id int);", encoding="utf-8")
+    (migration_dir / "001_test.sql").write_text(
+        "CREATE TABLE example(id int);", encoding="utf-8"
+    )
     monkeypatch.setattr(migrations, "MIGRATION_DIR", migration_dir)
     monkeypatch.setattr(migrations, "Database", FakeDatabase)
 

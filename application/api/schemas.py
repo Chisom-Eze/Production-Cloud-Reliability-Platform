@@ -45,4 +45,3 @@ class Job(BaseModel):
     result: dict[str, Any] | None = None
     object_key: str | None = None
     object_type: str | None = None
-

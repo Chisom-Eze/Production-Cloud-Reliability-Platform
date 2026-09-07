@@ -28,7 +28,9 @@ class FakeRepository:
     def get_job(self, job_id):
         return {"id": job_id, "status": "completed" if self.completed else "pending"}
 
-    def complete_job_with_report(self, job_id, processing_token, result, object_key, object_type):
+    def complete_job_with_report(
+        self, job_id, processing_token, result, object_key, object_type
+    ):
         assert processing_token == self.processing_token
         self.completed = True
         self.result = result

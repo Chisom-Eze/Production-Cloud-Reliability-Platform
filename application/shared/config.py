@@ -37,14 +37,20 @@ class Settings(BaseSettings):
     otel_traces_sampler: str = "parentbased_traceidratio"
     otel_traces_sampler_arg: float = Field(default=0.1, ge=0, le=1)
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     @model_validator(mode="after")
     def validate_runtime_intervals(self) -> "Settings":
         if self.sqs_visibility_heartbeat_seconds >= self.sqs_visibility_timeout_seconds:
-            raise ValueError("SQS_VISIBILITY_HEARTBEAT_SECONDS must be less than SQS_VISIBILITY_TIMEOUT_SECONDS")
+            raise ValueError(
+                "SQS_VISIBILITY_HEARTBEAT_SECONDS must be less than SQS_VISIBILITY_TIMEOUT_SECONDS"
+            )
         if self.job_processing_lease_seconds <= self.sqs_visibility_heartbeat_seconds:
-            raise ValueError("JOB_PROCESSING_LEASE_SECONDS must be greater than SQS_VISIBILITY_HEARTBEAT_SECONDS")
+            raise ValueError(
+                "JOB_PROCESSING_LEASE_SECONDS must be greater than SQS_VISIBILITY_HEARTBEAT_SECONDS"
+            )
         return self
 
     @property
@@ -52,7 +58,9 @@ class Settings(BaseSettings):
         return self.runtime_mode == "cloud"
 
     def database_conninfo(self) -> str:
-        if self.database_url and (not self.is_cloud or "database_url" in self.model_fields_set):
+        if self.database_url and (
+            not self.is_cloud or "database_url" in self.model_fields_set
+        ):
             return self.database_url
         missing = [
             name
@@ -65,7 +73,9 @@ class Settings(BaseSettings):
             if value is None
         ]
         if missing:
-            raise ValueError(f"missing required database configuration: {', '.join(missing)}")
+            raise ValueError(
+                f"missing required database configuration: {', '.join(missing)}"
+            )
         return make_conninfo(
             "",
             host=self.db_host,
@@ -85,7 +95,9 @@ class Settings(BaseSettings):
         if not self.sqs_queue_url:
             missing.append("SQS_QUEUE_URL")
         if missing:
-            raise ValueError(f"missing required queue configuration: {', '.join(missing)}")
+            raise ValueError(
+                f"missing required queue configuration: {', '.join(missing)}"
+            )
 
     def validate_artifact_store(self) -> None:
         missing = []
@@ -96,7 +108,9 @@ class Settings(BaseSettings):
         if not self.artifact_bucket_name:
             missing.append("ARTIFACT_BUCKET_NAME")
         if missing:
-            raise ValueError(f"missing required artifact configuration: {', '.join(missing)}")
+            raise ValueError(
+                f"missing required artifact configuration: {', '.join(missing)}"
+            )
 
     def validate_api_runtime(self) -> None:
         if self.is_cloud:
