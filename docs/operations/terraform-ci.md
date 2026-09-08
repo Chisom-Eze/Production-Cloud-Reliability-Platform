@@ -4,6 +4,8 @@
 
 This stage adds a static Terraform quality gate before any authenticated plan or apply workflow exists.
 
+`scripts/terraform-quality.sh` is the canonical executable implementation for Terraform static quality gates. GitHub Actions installs the required tools, then calls that script instead of maintaining a separate root list or duplicate quality-gate logic.
+
 The pipeline is intentionally narrow:
 
 ```text
@@ -23,8 +25,13 @@ It does not authenticate to AWS, run `terraform plan`, run `terraform apply`, pu
 Current real Terraform roots:
 
 - `infrastructure/bootstrap`
+- `infrastructure/shared/container-registry`
+- `infrastructure/shared/security-audit`
+- `infrastructure/environments/development`
 
-No reusable module directory currently contains Terraform files. A directory is not treated as a Terraform root unless it has root-module configuration that must be initialized and validated independently.
+Reusable module directories are not treated as Terraform roots. A directory is a Terraform root only when it has root-module configuration that must be initialized and validated independently.
+
+The root list is owned once in `scripts/terraform-quality.sh` so local and GitHub validation cannot drift.
 
 ## Terraform fmt
 
@@ -104,17 +111,16 @@ cd /mnt/c/Users/AGU/Documents/Codex/2026-08-20/re
 bash scripts/terraform-quality.sh
 ```
 
-Equivalent manual commands:
+For detailed command behavior, inspect `scripts/terraform-quality.sh`. The script performs:
 
-```bash
-terraform fmt -check -recursive infrastructure
-terraform -chdir=infrastructure/bootstrap init -backend=false
-terraform -chdir=infrastructure/bootstrap validate
-tflint --init
-tflint --config "$PWD/.tflint.hcl" --chdir=infrastructure/bootstrap
-trivy config --severity LOW,MEDIUM --exit-code 0 infrastructure
-trivy config --severity HIGH,CRITICAL --exit-code 1 infrastructure
-```
+- Terraform formatting check across `infrastructure/`
+- backend-disabled Terraform initialization for every root
+- lockfile read-only initialization when a root already has `.terraform.lock.hcl`
+- Terraform validation for every root
+- one TFLint plugin initialization
+- TFLint against every root
+- Trivy LOW/MEDIUM visibility scan across `infrastructure/`
+- Trivy HIGH/CRITICAL blocking scan across `infrastructure/`
 
 Expected result:
 
