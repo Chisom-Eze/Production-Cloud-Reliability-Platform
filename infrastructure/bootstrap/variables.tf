@@ -32,3 +32,8 @@ variable "github_development_subject" {
   default     = "repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development"
 }
 
+variable "github_development_plan_subject" {
+  description = "Exact GitHub OIDC subject allowed to assume the development Terraform plan role."
+  type        = string
+  default     = "repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development-plan"
+}
