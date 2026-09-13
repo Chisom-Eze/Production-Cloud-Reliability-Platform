@@ -23,3 +23,12 @@ output "github_development_deployment_role_arn" {
   value       = aws_iam_role.github_development_deployment.arn
 }
 
+output "github_development_terraform_plan_role_name" {
+  description = "GitHub development Terraform plan role name."
+  value       = aws_iam_role.github_development_terraform_plan.name
+}
+
+output "github_development_terraform_plan_role_arn" {
+  description = "GitHub development Terraform plan role ARN."
+  value       = aws_iam_role.github_development_terraform_plan.arn
+}
