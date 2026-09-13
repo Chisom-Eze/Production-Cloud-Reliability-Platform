@@ -31,7 +31,7 @@ That role is kept unchanged in Stage D3. It remains a temporary transition bridg
 The new permanent plan role is:
 
 ```text
-ProductionCloudReliabilityPlatform-GitHubDevelopmentTerraformPlan
+pcrp-GitHubDevelopmentTerraformPlan
 ```
 
 The plan role is read-only for AWS infrastructure inspection and has only the S3 backend permissions required to read approved non-bootstrap state and acquire/release native S3 lockfiles.

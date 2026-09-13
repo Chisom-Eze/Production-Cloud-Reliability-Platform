@@ -40,7 +40,7 @@ locals {
   ]
 
   project_iam_role_arns = [
-    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/pcrp-GitHubDevelopmentDeployment",
+    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/ProductionCloudReliabilityPlatform-GitHubDevelopmentDeployment",
     "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/pcrp-GitHubDevelopmentTerraformPlan",
     "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/pcrp-GitHubDevelopmentTerraformApply"
   ]
@@ -172,7 +172,7 @@ data "aws_iam_policy_document" "github_development_assume_role" {
 }
 
 resource "aws_iam_role" "github_development_deployment" {
-  name               = "pcrp-GitHubDevelopmentDeployment"
+  name               = "ProductionCloudReliabilityPlatform-GitHubDevelopmentDeployment"
   description        = "Stage 2A GitHub Actions OIDC federation proof role. No broad deployment permissions yet."
   assume_role_policy = data.aws_iam_policy_document.github_development_assume_role.json
 }
