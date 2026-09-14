@@ -95,6 +95,33 @@ jobs:
               -backend-config="use_lockfile=true"
           fi
 
+      - name: Inspect bootstrap state
+        if: ${{ inputs.action == 'repair-state' }}
+        working-directory: infrastructure/bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Current bootstrap state:"
+          terraform state list
+
+          if terraform state list | grep -Fxq 'aws_s3_bucket.terraform_state'; then
+            echo "aws_s3_bucket.terraform_state is already present."
+            exit 0
+          fi
+
+          echo "aws_s3_bucket.terraform_state is missing."
+          echo "Importing the existing state bucket into remote Terraform state."
+
+          terraform import \
+            -input=false \
+            aws_s3_bucket.terraform_state \
+            pcrp-terraform-state-us-east-1
+
+          echo
+          echo "State after repair:"
+          terraform state list
+
       - name: Validate bootstrap configuration
         run: terraform validate -no-color
 
