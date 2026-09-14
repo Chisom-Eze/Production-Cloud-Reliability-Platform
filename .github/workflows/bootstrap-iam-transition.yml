@@ -2,21 +2,23 @@ name: Bootstrap IAM Transition
 
 # TEMPORARY WORKFLOW:
 # Use only for the one-time bootstrap IAM transition that provisions the
-# permanent Terraform plan role. Remove this workflow after the plan role is
-# provisioned and verified. Normal development deployment must not use this
-# bridge workflow.
+# permanent Terraform plan role and repairs bootstrap state if required.
+# Remove this workflow after the plan role is provisioned and verified.
+# Normal development deployment must not use this bridge workflow.
 
 on:
   workflow_dispatch:
     inputs:
       action:
-        description: "Run an authenticated bootstrap plan or apply the saved bootstrap IAM transition plan."
+        description: "Choose bootstrap plan, apply, or targeted remote-state repair."
         required: true
         type: choice
         default: plan
         options:
           - plan
           - apply
+          - repair-state
+
       confirmation:
         description: "Required only for apply. Must exactly equal APPLY-BOOTSTRAP-IAM."
         required: false
@@ -44,8 +46,10 @@ jobs:
     env:
       AWS_REGION: us-east-1
       BOOTSTRAP_TRANSITION_ROLE_ARN: ${{ vars.AWS_DEVELOPMENT_DEPLOYMENT_ROLE_ARN }}
+
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
+
       TF_STATE_BUCKET: pcrp-terraform-state-us-east-1
       TF_STATE_KEY: bootstrap/terraform.tfstate
       TF_VAR_state_bucket_name: pcrp-terraform-state-us-east-1
@@ -60,9 +64,12 @@ jobs:
           terraform_version: "1.10.0"
 
       - name: Confirm transition role configuration
+        shell: bash
         run: |
+          set -euo pipefail
+
           if [[ -z "${BOOTSTRAP_TRANSITION_ROLE_ARN}" ]]; then
-            echo "::error::Set the development environment variable AWS_DEVELOPMENT_DEPLOYMENT_ROLE_ARN to the proven bootstrap transition role ARN."
+            echo "::error::Set AWS_DEVELOPMENT_DEPLOYMENT_ROLE_ARN in the development GitHub environment."
             exit 1
           fi
 
@@ -75,59 +82,89 @@ jobs:
 
       - name: Validate bootstrap apply confirmation
         if: ${{ inputs.action == 'apply' }}
+        shell: bash
         run: |
+          set -euo pipefail
+
           if [[ "${{ inputs.confirmation }}" != "APPLY-BOOTSTRAP-IAM" ]]; then
             echo "::error::Bootstrap apply requires confirmation value APPLY-BOOTSTRAP-IAM."
             exit 1
           fi
 
-      - name: Initialize bootstrap remote backend
-        run: |
-          if [[ -f backend.s3.tfbackend ]]; then
-            terraform init -input=false -backend-config=backend.s3.tfbackend
-          else
-            terraform init \
-              -input=false \
-              -backend-config="bucket=${TF_STATE_BUCKET}" \
-              -backend-config="key=${TF_STATE_KEY}" \
-              -backend-config="region=${AWS_REGION}" \
-              -backend-config="encrypt=true" \
-              -backend-config="use_lockfile=true"
-          fi
-
-      - name: Inspect bootstrap state
-        if: ${{ inputs.action == 'repair-state' }}
-        working-directory: infrastructure/bootstrap
+      - name: Initialize exact bootstrap remote backend
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Current bootstrap state:"
+          echo "Initializing authoritative bootstrap backend:"
+          echo "  bucket = ${TF_STATE_BUCKET}"
+          echo "  key    = ${TF_STATE_KEY}"
+          echo "  region = ${AWS_REGION}"
+
+          terraform init \
+            -input=false \
+            -reconfigure \
+            -lockfile=readonly \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Repair bootstrap remote state
+        if: ${{ inputs.action == 'repair-state' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== Authoritative remote state before repair ==="
           terraform state list
 
-          if terraform state list | grep -Fxq 'aws_s3_bucket.terraform_state'; then
-            echo "aws_s3_bucket.terraform_state is already present."
-            exit 0
+          if terraform state list \
+            | grep -Fxq 'aws_s3_bucket.terraform_state'; then
+
+            echo
+            echo "aws_s3_bucket.terraform_state already exists in the authoritative remote state."
+          else
+            echo
+            echo "aws_s3_bucket.terraform_state is missing."
+            echo "Importing the EXISTING AWS bucket into Terraform state."
+
+            terraform import \
+              -input=false \
+              aws_s3_bucket.terraform_state \
+              "${TF_STATE_BUCKET}"
           fi
 
-          echo "aws_s3_bucket.terraform_state is missing."
-          echo "Importing the existing state bucket into remote Terraform state."
-
-          terraform import \
-            -input=false \
-            aws_s3_bucket.terraform_state \
-            pcrp-terraform-state-us-east-1
-
           echo
-          echo "State after repair:"
+          echo "=== Authoritative remote state after repair ==="
           terraform state list
 
+          echo
+          echo "=== Required post-condition ==="
+
+          terraform state list \
+            | grep -Fx 'aws_s3_bucket.terraform_state'
+
+          echo
+          echo "Bootstrap S3 parent resource is confirmed in authoritative remote state."
+
       - name: Validate bootstrap configuration
+        if: ${{ inputs.action == 'plan' || inputs.action == 'apply' }}
         run: terraform validate -no-color
 
       - name: Create bootstrap transition plan
-        run: terraform plan -input=false -no-color -out=tfplan
+        if: ${{ inputs.action == 'plan' || inputs.action == 'apply' }}
+        run: |
+          terraform plan \
+            -input=false \
+            -no-color \
+            -out=tfplan
 
       - name: Apply exact bootstrap transition plan
         if: ${{ inputs.action == 'apply' }}
-        run: terraform apply -input=false -no-color tfplan
+        run: |
+          terraform apply \
+            -input=false \
+            -no-color \
+            tfplan
