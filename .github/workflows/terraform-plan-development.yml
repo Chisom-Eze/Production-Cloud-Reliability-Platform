@@ -1,0 +1,104 @@
+name: Terraform Development Plan
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-plan-development-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  terraform-plan:
+    name: Terraform plan
+    runs-on: ubuntu-latest
+    environment: development-plan
+
+    defaults:
+      run:
+        working-directory: infrastructure/shared/container-registry
+
+    env:
+      AWS_REGION: us-east-1
+      TERRAFORM_PLAN_ROLE_ARN: ${{ vars.AWS_DEVELOPMENT_TERRAFORM_PLAN_ROLE_ARN }}
+      TERRAFORM_PLAN_ROLE_NAME: pcrp-GitHubDevelopmentTerraformPlan
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_STATE_BUCKET: pcrp-terraform-state-us-east-1
+      TF_STATE_KEY: shared/container-registry/terraform.tfstate
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.0"
+
+      - name: Confirm Terraform plan role configuration
+        run: |
+          if [[ -z "${TERRAFORM_PLAN_ROLE_ARN}" ]]; then
+            echo "::error::Set the development-plan environment variable AWS_DEVELOPMENT_TERRAFORM_PLAN_ROLE_ARN."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials through GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.TERRAFORM_PLAN_ROLE_ARN }}
+          role-session-name: terraform-plan-${{ github.run_id }}
+
+      - name: Validate and plan container registry root
+        run: |
+          set -euo pipefail
+
+          terraform_result="failed"
+
+          write_summary() {
+            {
+              echo "## Terraform Development Plan"
+              echo ""
+              echo "- Root: infrastructure/shared/container-registry"
+              echo "- AWS region: ${AWS_REGION}"
+              echo "- Backend state key: ${TF_STATE_KEY}"
+              echo "- Identity: ${TERRAFORM_PLAN_ROLE_NAME}"
+              echo "- Terraform result: ${terraform_result}"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          }
+
+          trap write_summary EXIT
+
+          terraform fmt -check
+
+          terraform init \
+            -input=false \
+            -lockfile=readonly \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+          terraform validate -no-color
+
+          set +e
+          terraform plan \
+            -input=false \
+            -no-color \
+            -detailed-exitcode
+          plan_exit_code=$?
+          set -e
+
+          if [[ "${plan_exit_code}" -eq 0 ]]; then
+            terraform_result="no changes"
+          elif [[ "${plan_exit_code}" -eq 2 ]]; then
+            terraform_result="changes detected"
+          else
+            terraform_result="failed"
+            exit "${plan_exit_code}"
+          fi
