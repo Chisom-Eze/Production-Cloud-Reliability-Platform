@@ -1,40 +1,42 @@
 # Deployment IAM
 
-This document records the Stage D3 deployment IAM boundary for the Production Cloud Reliability Platform.
+This document records the deployment IAM boundary for the Production Cloud Reliability Platform.
 
 ## Current Stage
 
-Stage D3 introduces only authenticated Terraform plan authorization.
+Stage D4 introduces the first permanent AWS-authenticated Terraform plan workflow.
 
 The target milestone is:
 
 ```text
 GitHub Actions
   -> GitHub OIDC
-  -> dedicated Terraform plan role
+  -> pcrp-GitHubDevelopmentTerraformPlan
   -> remote S3 state with native S3 locking
   -> authenticated Terraform plan
 ```
 
-This stage does not introduce Terraform apply permissions, ECS release permissions, ECR publishing changes, long-lived AWS keys, local Terraform apply, DynamoDB locking, or AdministratorAccess.
+This stage does not introduce Terraform apply permissions, Terraform destroy, ECS release permissions, ECR publishing changes, long-lived AWS keys, local Terraform apply, DynamoDB locking, or AdministratorAccess.
+
+The bootstrap IAM transition has been completed by the operator, and the temporary AWS-side transition policy has been removed. The temporary repository workflow remains in place only for a later cleanup change and must not be used for normal operations.
 
 ## Identity Separation
 
-The existing proven OIDC role remains:
+The retired bootstrap bridge role is:
 
 ```text
 ProductionCloudReliabilityPlatform-GitHubDevelopmentDeployment
 ```
 
-That role is kept unchanged in Stage D3. It remains a temporary transition bridge for the one-time bootstrap IAM update after an explicitly privileged operator grants it narrowly scoped transition permissions.
+That role must not be used for normal Terraform planning, application deployment, ECR publishing, or ECS release operations.
 
-The new permanent plan role is:
+The active permanent plan role is:
 
 ```text
 pcrp-GitHubDevelopmentTerraformPlan
 ```
 
-The plan role is read-only for AWS infrastructure inspection and has only the S3 backend permissions required to read approved non-bootstrap state and acquire/release native S3 lockfiles.
+The plan role is read-only for AWS infrastructure inspection and has only the S3 backend permissions required to read the approved non-bootstrap state and acquire/release native S3 lockfiles.
 
 Apply, release, publisher, shared-apply, and permanent bootstrap-apply identities are intentionally deferred until authenticated plan behavior is proven.
 
@@ -59,20 +61,26 @@ development-plan
 
 ## State Boundary
 
-The plan role can read these non-bootstrap state objects:
+The first permanent plan proof supports only this Terraform root:
 
 ```text
 shared/container-registry/terraform.tfstate
-shared/security-audit/terraform.tfstate
-environments/development/terraform.tfstate
 ```
 
-It can acquire and release native S3 lockfiles for those same states:
+The workflow initializes the S3 backend explicitly with:
+
+```text
+bucket       = pcrp-terraform-state-us-east-1
+key          = shared/container-registry/terraform.tfstate
+region       = us-east-1
+encrypt      = true
+use_lockfile = true
+```
+
+It can acquire and release the native S3 lockfile for that state:
 
 ```text
 shared/container-registry/terraform.tfstate.tflock
-shared/security-audit/terraform.tfstate.tflock
-environments/development/terraform.tfstate.tflock
 ```
 
 The plan role cannot write or delete `.tfstate` objects.
@@ -88,7 +96,11 @@ Bootstrap state remains outside normal development plan authority because it own
 
 ## AWS Boundary
 
-Terraform plan may inspect AWS configuration required for provider refresh, data sources, and planning across the non-bootstrap roots:
+Terraform plan may inspect AWS configuration required for provider refresh, data sources, and planning. The first proof workflow exercises only the shared container registry root.
+
+The plan identity has no apply, destroy, release, or publisher authority.
+
+Read categories represented in the plan IAM design include:
 
 * EC2/VPC networking
 * Elastic Load Balancing v2
@@ -133,13 +145,13 @@ Explicit deny statements protect the highest-risk boundaries: bootstrap state ac
 
 ## Temporary Bootstrap Transition Workflow
 
-Stage D3 adds:
+The temporary bootstrap transition workflow remains in the repository during D4:
 
 ```text
 .github/workflows/bootstrap-iam-transition.yml
 ```
 
-This workflow is temporary. It exists only to apply the bootstrap IAM transition after an explicitly privileged operator temporarily grants the existing proven OIDC role the required bootstrap transition permissions.
+This workflow is temporary. The operator has completed the bootstrap transition and removed the temporary AWS-side transition policy. Do not use this workflow for normal operations.
 
 The workflow:
 
@@ -155,7 +167,37 @@ The workflow:
 * applies only the exact saved plan file
 * requires confirmation value `APPLY-BOOTSTRAP-IAM` before apply
 
-After the plan role is provisioned and verified, remove this temporary workflow.
+After the permanent plan workflow succeeds end-to-end and evidence is captured, remove this temporary workflow in a separate cleanup change.
+
+## Permanent Development Plan Workflow
+
+Stage D4 adds:
+
+```text
+.github/workflows/terraform-plan-development.yml
+```
+
+The workflow:
+
+* runs only through `workflow_dispatch`
+* has no push trigger
+* has no pull request trigger
+* uses `contents: read` and `id-token: write`
+* uses the `development-plan` GitHub environment
+* reads the role ARN from `vars.AWS_DEVELOPMENT_TERRAFORM_PLAN_ROLE_ARN`
+* assumes `pcrp-GitHubDevelopmentTerraformPlan` through GitHub OIDC
+* operates only in `infrastructure/shared/container-registry`
+* initializes the S3 backend explicitly and does not depend on local `backend.s3.tfbackend`
+* runs `terraform fmt -check`
+* runs `terraform validate`
+* runs `terraform plan -detailed-exitcode`
+* treats exit code `0` as no changes
+* treats exit code `2` as successful changes detected
+* treats exit code `1` as failure
+
+The workflow does not run `terraform apply`, `terraform destroy`, or upload a binary plan artifact.
+
+Successful execution of this workflow is not claimed until the operator provides GitHub Actions evidence.
 
 ## Future Stages
 
@@ -167,4 +209,3 @@ Later work will introduce separate identities for:
 * ECS migration and release orchestration
 
 Those roles should be added only after authenticated plan succeeds and should preserve separation between state access, infrastructure mutation, image publishing, and ECS release operations.
-
