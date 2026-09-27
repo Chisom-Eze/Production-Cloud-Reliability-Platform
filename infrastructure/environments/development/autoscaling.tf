@@ -1,5 +1,6 @@
 module "ecs_autoscaling" {
   source = "../../modules/ecs-autoscaling"
+  count  = var.ecs_services_enabled ? 1 : 0
 
   cluster_name        = module.ecs.cluster_name
   api_service_name    = module.ecs.api_service_name

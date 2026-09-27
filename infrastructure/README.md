@@ -964,7 +964,7 @@ Autoscaling ownership:
 
 - Terraform creates and configures ECS services, sets initial desired count, and defines scalable min/max capacity.
 - Application Auto Scaling owns runtime ECS service `DesiredCount`.
-- ECS service resources ignore only `desired_count` drift so Terraform does not fight scaling decisions.
+- ECS service resources ignore `desired_count` drift so Terraform does not fight scaling decisions. Release Sequencing Part 1 additionally assigns live `task_definition` revision updates to release orchestration.
 
 API scaling:
 
@@ -1295,3 +1295,48 @@ Review triggers:
 - SQL-style audit investigations.
 - security team requires immutable retention.
 - CloudTrail Insights or data-event requirements emerge.
+
+## Release Sequencing Part 1: ECS Service Bootstrap Gate
+
+Stage implemented:
+
+- Release Sequencing Part 1 adds a safe first-deployment gate for development ECS services and autoscaling.
+- The ECS module defaults `services_enabled` to `false`; the development root exposes `ecs_services_enabled` with the same safe default.
+
+Ownership/root:
+
+- Terraform continues to own the ECS cluster, task-definition registration, service infrastructure, ALB integration, circuit breakers, and autoscaling.
+- The development root owns whether initial services and autoscaling exist.
+- After service creation, release orchestration owns approved API and worker live task-definition revision changes.
+- Application Auto Scaling continues to own runtime desired count.
+
+Security decisions:
+
+- No IAM, network, security-group, secret, image-validation, or remote-state boundary changes in this stage.
+- A failed first migration cannot roll out services because services and autoscaling are absent while the gate is false.
+- Task-definition and desired-count drift are the only intentionally ignored ECS service attributes; blanket drift suppression is not used.
+- Release evidence and conformance checks are required later to detect a live service revision that is not in the approved release manifest.
+
+Cost decisions:
+
+- The safe default creates no continuously running API or worker service tasks and no autoscaling resources during foundation bootstrap.
+- Task definitions and log groups can exist before the first migration without Fargate task runtime charges.
+- Enabling services restores the existing development desired/minimum count of one and maximum count of four.
+
+Production-hardening decisions:
+
+- API and worker services use `wait_for_steady_state = true` for initial creation and Terraform-owned service operations.
+- Task-definition revisions remain immutable digest based and Terraform registered.
+- Circuit-breaker rollback, ALB-to-Nginx routing, private networking, and existing workload topology remain unchanged.
+- Autoscaling is enabled only with service creation, preventing targets or policies from referencing nonexistent services.
+
+Intentional trade-offs:
+
+- Terraform uses `task_definition` during service creation but no longer reconciles later live revision changes.
+- Intentional drift supports migration-gated release orchestration but requires independent evidence and conformance detection for unauthorized manual changes.
+- Conditional resources introduce indexed ECS service and autoscaling module addresses.
+
+Deferred components:
+
+- Release IAM, release workflow implementation, migration execution, service revision updates, coordinated rollback, and deployment evidence remain deferred.
+- `wait_for_steady_state` is not treated as migration enforcement.

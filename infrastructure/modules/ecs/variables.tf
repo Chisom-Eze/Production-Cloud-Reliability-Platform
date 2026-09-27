@@ -24,6 +24,12 @@ variable "container_insights" {
   }
 }
 
+variable "services_enabled" {
+  description = "Whether to create the API and worker ECS services. Keep false until the first migration succeeds."
+  type        = bool
+  default     = false
+}
+
 variable "api_image_uri" {
   description = "Immutable API image URI in repository-uri@sha256:digest form."
   type        = string

@@ -24,13 +24,13 @@ output "api_task_definition_family" {
 }
 
 output "api_service_name" {
-  description = "API ECS service name."
-  value       = aws_ecs_service.api.name
+  description = "API ECS service name, or null when services are disabled."
+  value       = try(aws_ecs_service.api[0].name, null)
 }
 
 output "api_service_id" {
-  description = "API ECS service ID."
-  value       = aws_ecs_service.api.id
+  description = "API ECS service ID, or null when services are disabled."
+  value       = try(aws_ecs_service.api[0].id, null)
 }
 
 output "worker_task_definition_arn" {
@@ -44,13 +44,13 @@ output "worker_task_definition_family" {
 }
 
 output "worker_service_name" {
-  description = "Worker ECS service name."
-  value       = aws_ecs_service.worker.name
+  description = "Worker ECS service name, or null when services are disabled."
+  value       = try(aws_ecs_service.worker[0].name, null)
 }
 
 output "worker_service_id" {
-  description = "Worker ECS service ID."
-  value       = aws_ecs_service.worker.id
+  description = "Worker ECS service ID, or null when services are disabled."
+  value       = try(aws_ecs_service.worker[0].id, null)
 }
 
 output "migration_task_definition_arn" {

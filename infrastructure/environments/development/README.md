@@ -223,6 +223,7 @@ Development configuration:
 - enhanced Container Insights enabled
 - Linux `X86_64` task runtime
 - immutable image digest variables for API, Nginx, and worker
+- `ecs_services_enabled = false` by default for safe first-deployment bootstrap
 - API service desired count `1`
 - worker service desired count `1`
 - API task `512` CPU units and `1024` MiB memory
@@ -231,7 +232,7 @@ Development configuration:
 - API, Nginx, and worker log groups with 7-day retention
 - CloudWatch Logs service-managed encryption
 - ECS Exec disabled
-- no Application Auto Scaling yet
+- API/worker services and Application Auto Scaling are absent while the service gate is disabled
 - no Fargate Spot yet
 - no customer-managed KMS key
 
@@ -251,22 +252,25 @@ The worker receives `SQS_QUEUE_URL`, `ARTIFACT_BACKEND=s3`, `ARTIFACT_BUCKET_NAM
 
 The one-off migration task definition uses the API image and command `python -m application.migrations`. It does not include Nginx and is not an ECS service. It should run later in application-private subnets with public IP disabled, using the existing worker security group because that network policy has no inbound access, HTTPS egress, and PostgreSQL egress to RDS.
 
-Future release order:
+First-deployment release order:
 
-1. Register new task definitions.
-2. Run the one-off migration task.
-3. Wait for the migration task to exit successfully.
-4. Deploy or update API and worker services.
+1. Apply the development foundation with `ecs_services_enabled = false` so Terraform registers task definitions without creating services or autoscaling.
+2. Run the one-off migration task through the future release workflow.
+3. Wait for the migration task and verify a successful container exit.
+4. Only after success, apply with `ecs_services_enabled = true` to create the initial API/worker services and autoscaling.
+5. Wait for initial service stability.
 
 If migration fails, stop the release and do not roll out new application services automatically.
 
-Rolling deployment circuit breakers are enabled for API and worker with rollback. Because desired count is `1`, a deployment can temporarily run two tasks and briefly increase Fargate cost.
+For later releases, Terraform registers new task-definition revisions but intentionally ignores each service's live `task_definition` revision. The future release workflow owns migration, approved service revision updates, stability checks, and release evidence. Conformance checks are required because ignored drift also includes unauthorized manual revision changes.
+
+Rolling deployment circuit breakers are enabled for API and worker with rollback. Terraform sets `wait_for_steady_state = true` for initial creation and Terraform-owned service operations; this is not migration enforcement. Because desired count is `1`, a deployment can temporarily run two tasks and briefly increase Fargate cost.
 
 ## ECS Service Auto Scaling
 
 Stage 4J adds AWS Application Auto Scaling for the API and worker ECS services through the reusable `modules/ecs-autoscaling` module.
 
-Application Auto Scaling owns runtime `DesiredCount` after service creation. Terraform still creates and configures the ECS services, sets the initial desired count, and defines scalable min/max bounds. The ECS service resources ignore `desired_count` drift so Terraform does not fight scaling changes made by Application Auto Scaling.
+Application Auto Scaling owns runtime `DesiredCount` after service creation. The autoscaling module is instantiated only when `ecs_services_enabled = true`, so scalable targets and policies never reference absent ECS services. Terraform sets initial desired count and scalable min/max bounds; service resources ignore `desired_count` drift so Terraform does not fight scaling changes made by Application Auto Scaling.
 
 Development capacity:
 
@@ -294,7 +298,7 @@ AWS/SQS ApproximateNumberOfMessagesVisible
 ECS/ContainerInsights RunningTaskCount
 ```
 
-The queue name comes from `module.job_queue.queue_name`. The cluster and service names come from `module.ecs.cluster_name` and `module.ecs.worker_service_name`. The worker backlog-per-task target is a required deployment input with no fake default. It should be selected from acceptable queue wait time divided by average processing time, or equivalent workload-capacity reasoning.
+The queue name comes from `module.job_queue.queue_name`. When services are enabled, the cluster and service names come from `module.ecs.cluster_name` and the non-null service outputs. The worker backlog-per-task target is a required deployment input with no fake default. It should be selected from acceptable queue wait time divided by average processing time, or equivalent workload-capacity reasoning.
 
 Cooldowns:
 

@@ -7,6 +7,7 @@ module "ecs" {
   tags         = local.standard_tags
 
   container_insights = "enhanced"
+  services_enabled   = var.ecs_services_enabled
 
   api_image_uri             = var.api_image_uri
   nginx_image_uri           = var.nginx_image_uri
