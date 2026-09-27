@@ -295,7 +295,7 @@ resource "aws_ecs_task_definition" "api" {
           value = tostring(var.otel_traces_sampler_arg)
         }
       ])
-      secrets     = local.database_secrets
+      secrets = local.database_secrets
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -443,7 +443,7 @@ resource "aws_ecs_task_definition" "worker" {
           value = tostring(var.otel_traces_sampler_arg)
         }
       ])
-      secrets                = local.database_secrets
+      secrets = local.database_secrets
       logConfiguration = {
         logDriver = "awslogs"
         options = {
