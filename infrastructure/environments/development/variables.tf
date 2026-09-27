@@ -89,6 +89,12 @@ variable "adot_collector_image_uri" {
   }
 }
 
+variable "ecs_services_enabled" {
+  description = "Whether to create development API/worker ECS services and autoscaling. Keep false until the first migration succeeds."
+  type        = bool
+  default     = false
+}
+
 variable "api_desired_count" {
   description = "Development API desired task count."
   type        = number

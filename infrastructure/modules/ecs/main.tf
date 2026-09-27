@@ -295,7 +295,7 @@ resource "aws_ecs_task_definition" "api" {
           value = tostring(var.otel_traces_sampler_arg)
         }
       ])
-      secrets = local.database_secrets
+      secrets     = local.database_secrets
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -443,7 +443,7 @@ resource "aws_ecs_task_definition" "worker" {
           value = tostring(var.otel_traces_sampler_arg)
         }
       ])
-      secrets = local.database_secrets
+      secrets                = local.database_secrets
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -523,6 +523,8 @@ resource "aws_ecs_task_definition" "migration" {
 }
 
 resource "aws_ecs_service" "api" {
+  count = var.services_enabled ? 1 : 0
+
   name             = "${local.name_prefix}-api"
   cluster          = aws_ecs_cluster.this.id
   task_definition  = aws_ecs_task_definition.api.arn
@@ -536,6 +538,7 @@ resource "aws_ecs_service" "api" {
   enable_ecs_managed_tags            = true
   propagate_tags                     = "SERVICE"
   enable_execute_command             = false
+  wait_for_steady_state              = true
 
   deployment_circuit_breaker {
     enable   = true
@@ -563,11 +566,13 @@ resource "aws_ecs_service" "api" {
   })
 
   lifecycle {
-    ignore_changes = [desired_count]
+    ignore_changes = [desired_count, task_definition]
   }
 }
 
 resource "aws_ecs_service" "worker" {
+  count = var.services_enabled ? 1 : 0
+
   name             = "${local.name_prefix}-worker"
   cluster          = aws_ecs_cluster.this.id
   task_definition  = aws_ecs_task_definition.worker.arn
@@ -580,6 +585,7 @@ resource "aws_ecs_service" "worker" {
   enable_ecs_managed_tags            = true
   propagate_tags                     = "SERVICE"
   enable_execute_command             = false
+  wait_for_steady_state              = true
 
   deployment_circuit_breaker {
     enable   = true
@@ -601,6 +607,6 @@ resource "aws_ecs_service" "worker" {
   })
 
   lifecycle {
-    ignore_changes = [desired_count]
+    ignore_changes = [desired_count, task_definition]
   }
 }

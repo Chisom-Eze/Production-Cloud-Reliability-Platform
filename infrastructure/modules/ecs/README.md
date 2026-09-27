@@ -35,6 +35,20 @@ Collector configuration is supplied through non-secret `AOT_CONFIG_CONTENT`. Met
 
 The migration task definition uses the API image with `python -m application.migrations`. It is not a service.
 
+## Service Bootstrap And Release Ownership
+
+`services_enabled` defaults to `false`. With the gate disabled, Terraform still creates the ECS cluster, log groups, and API, worker, and migration task definitions, but it does not create the API or worker ECS services. Service-specific outputs are `null`; task-definition ARN and family outputs remain available for migration orchestration.
+
+After the first migration has completed successfully, set `services_enabled = true` through the environment root. Terraform then creates the API and worker services and waits for both services to reach steady state. This wait protects initial service creation and later Terraform-owned infrastructure operations; it does not execute or enforce the database migration.
+
+During service creation Terraform uses the module's API and worker task-definition ARNs. After creation, `task_definition` and `desired_count` are shared-ownership attributes:
+
+- the release workflow owns approved live task-definition revision changes;
+- Application Auto Scaling owns runtime desired-count changes;
+- Terraform intentionally ignores update drift for those two attributes while retaining ownership of the remaining service infrastructure.
+
+Terraform continues to register task-definition revisions from immutable image digest inputs. A future release workflow must run and verify the migration before selecting those revisions on the services. Because ignored task-definition drift can also hide an unauthorized manual revision change, release evidence and conformance checks must compare each live service revision with the approved release manifest.
+
 ## Secrets
 
 Database username and password are injected from the RDS-managed Secrets Manager secret using JSON keys:
@@ -56,4 +70,4 @@ The migration task writes to the API log group with a distinct `migration` strea
 
 This module does not create IAM roles, ECR repositories, ALB resources, security groups, autoscaling policies, ECS Exec permissions, KMS keys, FireLens, dashboards, alarms, GitHub deployment workflows, staging, or production.
 
-When Application Auto Scaling is attached by a separate module, ECS service `desired_count` is ignored after creation so Terraform does not fight runtime scaling decisions. Terraform still sets initial service size and scaling bounds are owned outside this module.
+When Application Auto Scaling is attached by a separate module, ECS service `desired_count` is ignored after creation so Terraform does not fight runtime scaling decisions. Terraform still sets initial service size and scaling bounds are owned outside this module. The environment root must instantiate autoscaling only when `services_enabled` is true.

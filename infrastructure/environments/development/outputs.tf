@@ -330,12 +330,12 @@ output "api_task_definition_family" {
 }
 
 output "api_service_name" {
-  description = "Development API ECS service name."
+  description = "Development API ECS service name, or null during foundation bootstrap."
   value       = module.ecs.api_service_name
 }
 
 output "api_service_id" {
-  description = "Development API ECS service ID."
+  description = "Development API ECS service ID, or null during foundation bootstrap."
   value       = module.ecs.api_service_id
 }
 
@@ -350,12 +350,12 @@ output "worker_task_definition_family" {
 }
 
 output "worker_service_name" {
-  description = "Development worker ECS service name."
+  description = "Development worker ECS service name, or null during foundation bootstrap."
   value       = module.ecs.worker_service_name
 }
 
 output "worker_service_id" {
-  description = "Development worker ECS service ID."
+  description = "Development worker ECS service ID, or null during foundation bootstrap."
   value       = module.ecs.worker_service_id
 }
 
@@ -400,63 +400,63 @@ output "worker_log_group_arn" {
 }
 
 output "api_scalable_target_resource_id" {
-  description = "Development API scalable target resource ID."
-  value       = module.ecs_autoscaling.api_scalable_target_resource_id
+  description = "Development API scalable target resource ID, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].api_scalable_target_resource_id, null)
 }
 
 output "api_scalable_target_min_capacity" {
-  description = "Development API scalable target minimum capacity."
-  value       = module.ecs_autoscaling.api_scalable_target_min_capacity
+  description = "Development API scalable target minimum capacity, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].api_scalable_target_min_capacity, null)
 }
 
 output "api_scalable_target_max_capacity" {
-  description = "Development API scalable target maximum capacity."
-  value       = module.ecs_autoscaling.api_scalable_target_max_capacity
+  description = "Development API scalable target maximum capacity, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].api_scalable_target_max_capacity, null)
 }
 
 output "worker_scalable_target_resource_id" {
-  description = "Development worker scalable target resource ID."
-  value       = module.ecs_autoscaling.worker_scalable_target_resource_id
+  description = "Development worker scalable target resource ID, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].worker_scalable_target_resource_id, null)
 }
 
 output "worker_scalable_target_min_capacity" {
-  description = "Development worker scalable target minimum capacity."
-  value       = module.ecs_autoscaling.worker_scalable_target_min_capacity
+  description = "Development worker scalable target minimum capacity, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].worker_scalable_target_min_capacity, null)
 }
 
 output "worker_scalable_target_max_capacity" {
-  description = "Development worker scalable target maximum capacity."
-  value       = module.ecs_autoscaling.worker_scalable_target_max_capacity
+  description = "Development worker scalable target maximum capacity, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].worker_scalable_target_max_capacity, null)
 }
 
 output "api_cpu_policy_name" {
-  description = "Development API CPU autoscaling policy name."
-  value       = module.ecs_autoscaling.api_cpu_policy_name
+  description = "Development API CPU autoscaling policy name, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].api_cpu_policy_name, null)
 }
 
 output "api_cpu_policy_arn" {
-  description = "Development API CPU autoscaling policy ARN."
-  value       = module.ecs_autoscaling.api_cpu_policy_arn
+  description = "Development API CPU autoscaling policy ARN, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].api_cpu_policy_arn, null)
 }
 
 output "api_memory_policy_name" {
-  description = "Development API memory autoscaling policy name."
-  value       = module.ecs_autoscaling.api_memory_policy_name
+  description = "Development API memory autoscaling policy name, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].api_memory_policy_name, null)
 }
 
 output "api_memory_policy_arn" {
-  description = "Development API memory autoscaling policy ARN."
-  value       = module.ecs_autoscaling.api_memory_policy_arn
+  description = "Development API memory autoscaling policy ARN, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].api_memory_policy_arn, null)
 }
 
 output "worker_backlog_policy_name" {
-  description = "Development worker backlog-per-task autoscaling policy name."
-  value       = module.ecs_autoscaling.worker_backlog_policy_name
+  description = "Development worker backlog-per-task autoscaling policy name, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].worker_backlog_policy_name, null)
 }
 
 output "worker_backlog_policy_arn" {
-  description = "Development worker backlog-per-task autoscaling policy ARN."
-  value       = module.ecs_autoscaling.worker_backlog_policy_arn
+  description = "Development worker backlog-per-task autoscaling policy ARN, or null when ECS services are disabled."
+  value       = try(module.ecs_autoscaling[0].worker_backlog_policy_arn, null)
 }
 
 output "amp_workspace_id" {
