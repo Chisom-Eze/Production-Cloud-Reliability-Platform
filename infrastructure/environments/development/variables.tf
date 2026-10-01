@@ -95,6 +95,12 @@ variable "ecs_services_enabled" {
   default     = false
 }
 
+variable "github_development_ecs_release_role_name" {
+  description = "Permanent GitHub development ECS release IAM role name created by bootstrap."
+  type        = string
+  default     = "pcrp-GitHubDevelopmentEcsRelease"
+}
+
 variable "api_desired_count" {
   description = "Development API desired task count."
   type        = number

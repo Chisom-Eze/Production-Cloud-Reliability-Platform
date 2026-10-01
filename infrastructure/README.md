@@ -38,8 +38,8 @@ Modules do not contain backend blocks, backend configuration, account IDs, or de
 
 | Root | Responsibility | State key |
 | --- | --- | --- |
-| `bootstrap` | Foundational state bucket, S3 backend controls, GitHub OIDC provider, GitHub development deployment role | Existing key, unchanged |
-| `shared/container-registry` | Shared ECR repositories and GitHub ECR publishing policy attachment | `shared/container-registry/terraform.tfstate` |
+| `bootstrap` | Foundational state bucket, S3 backend controls, GitHub OIDC provider, temporary GitHub development deployment bridge role, and permanent development Plan/Apply/Publisher/Release roles | Existing key, unchanged |
+| `shared/container-registry` | Shared ECR repositories and GitHub ECR publishing policy attachment to the permanent Publisher role | `shared/container-registry/terraform.tfstate` |
 | `shared/security-audit` | Account-level CloudTrail audit bucket, multi-Region trail, targeted security EventBridge rules, and security SNS topic | `shared/security-audit/terraform.tfstate` |
 | `environments/development` | Development runtime infrastructure: VPC, security groups, private PostgreSQL RDS foundation, SQS job queue, S3 artifact storage, ECS workload IAM, public ALB edge, and WAF protection | `environments/development/terraform.tfstate` |
 | `environments/staging` | Future staging runtime infrastructure | `environments/staging/terraform.tfstate` |
@@ -67,7 +67,35 @@ Hardening differences should be expressed later through root-level module inputs
 
 One AWS resource must have one Terraform owner. Roots may consume stable identifiers through variables, data lookups, or deliberate output contracts, but they must not duplicate resource declarations.
 
-The shared container registry root attaches a separate customer-managed ECR publishing policy to the existing GitHub development deployment role by role name. Bootstrap continues to own the IAM role and its OIDC trust policy. The shared root owns only the ECR publishing policy and attachment.
+The shared container registry root attaches a separate customer-managed ECR publishing policy to `pcrp-GitHubDevelopmentEcrPublisher` by role name. Bootstrap owns the Publisher role and OIDC trust policy. The shared root owns only the ECR publishing policy and attachment.
+
+The development root owns the customer-managed policy `pcrp-GitHubDevelopmentEcsReleaseRuntime` and attaches it only to `pcrp-GitHubDevelopmentEcsRelease`. Bootstrap owns the Release role and OIDC trust policy. The development root owns the runtime permissions because it has the exact ECS cluster, service, task-definition, workload-role, log-group, and target-group context.
+
+Terraform Apply can manage only `arn:aws:iam::<account-id>:policy/pcrp-GitHubDevelopmentEcsReleaseRuntime` and can attach or detach only that policy on the Release role. Explicit denies prevent inline-policy mutation, other managed-policy attachments, trust-policy changes, role deletion, and permissions-boundary changes on the Release role.
+
+The temporary `ProductionCloudReliabilityPlatform-GitHubDevelopmentDeployment` role remains a bridge only. It is not a normal deployment identity and should be removed after the permanent identities are provisioned and verified.
+
+Permanent GitHub environment ownership:
+
+```text
+development-plan
+  -> pcrp-GitHubDevelopmentTerraformPlan
+
+development-apply
+  -> pcrp-GitHubDevelopmentTerraformApply
+
+development-publish
+  -> pcrp-GitHubDevelopmentEcrPublisher
+
+development-release
+  -> pcrp-GitHubDevelopmentEcsRelease
+```
+
+Boundary summary:
+
+- Apply cannot access bootstrap Terraform state, publish container images, or execute migration tasks.
+- Publisher cannot deploy ECS or mutate infrastructure.
+- Release cannot register task definitions, read Terraform backend state, publish ECR images, or administer infrastructure.
 
 ## Build Once, Promote Same Digest
 

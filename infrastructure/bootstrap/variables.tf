@@ -5,7 +5,7 @@ variable "aws_region" {
 
   validation {
     condition     = var.aws_region == "us-east-1"
-    error_message = "Stage 2A bootstrap is intentionally scoped to us-east-1."
+    error_message = "Bootstrap is intentionally scoped to us-east-1."
   }
 }
 
@@ -36,4 +36,22 @@ variable "github_development_plan_subject" {
   description = "Exact GitHub OIDC subject allowed to assume the development Terraform plan role."
   type        = string
   default     = "repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development-plan"
+}
+
+variable "github_development_apply_subject" {
+  description = "Exact GitHub OIDC subject allowed to assume the development Terraform apply role."
+  type        = string
+  default     = "repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development-apply"
+}
+
+variable "github_development_publish_subject" {
+  description = "Exact GitHub OIDC subject allowed to assume the development ECR publisher role."
+  type        = string
+  default     = "repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development-publish"
+}
+
+variable "github_development_release_subject" {
+  description = "Exact GitHub OIDC subject allowed to assume the development ECS release role."
+  type        = string
+  default     = "repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development-release"
 }

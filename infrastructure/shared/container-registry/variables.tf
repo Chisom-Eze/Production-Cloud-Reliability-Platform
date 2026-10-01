@@ -9,8 +9,8 @@ variable "aws_region" {
   }
 }
 
-variable "github_development_deployment_role_name" {
-  description = "Existing GitHub development deployment IAM role name created by bootstrap."
+variable "github_development_ecr_publisher_role_name" {
+  description = "Permanent GitHub development ECR publisher IAM role name created by bootstrap."
   type        = string
-  default     = "ProductionCloudReliabilityPlatform-GitHubDevelopmentDeployment"
+  default     = "pcrp-GitHubDevelopmentEcrPublisher"
 }

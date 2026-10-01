@@ -37,7 +37,7 @@ The migration task definition uses the API image with `python -m application.mig
 
 ## Service Bootstrap And Release Ownership
 
-`services_enabled` defaults to `false`. With the gate disabled, Terraform still creates the ECS cluster, log groups, and API, worker, and migration task definitions, but it does not create the API or worker ECS services. Service-specific outputs are `null`; task-definition ARN and family outputs remain available for migration orchestration.
+`services_enabled` defaults to `false`. With the gate disabled, Terraform still creates the ECS cluster, log groups, and API, worker, and migration task definitions, but it does not create the API or worker ECS services. Service resource outputs are `null`; configured service-name outputs and task-definition ARN/family outputs remain available for release IAM and migration orchestration.
 
 After the first migration has completed successfully, set `services_enabled = true` through the environment root. Terraform then creates the API and worker services and waits for both services to reach steady state. This wait protects initial service creation and later Terraform-owned infrastructure operations; it does not execute or enforce the database migration.
 

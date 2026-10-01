@@ -25,6 +25,6 @@ output "ecr_repository_arns" {
 }
 
 output "github_development_ecr_publish_policy_arn" {
-  description = "Customer-managed ECR publishing policy attached to the existing GitHub development deployment role."
+  description = "Customer-managed ECR publishing policy attached to the permanent GitHub development ECR publisher role."
   value       = aws_iam_policy.github_development_ecr_publish.arn
 }

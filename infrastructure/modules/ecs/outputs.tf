@@ -28,6 +28,11 @@ output "api_service_name" {
   value       = try(aws_ecs_service.api[0].name, null)
 }
 
+output "api_service_configured_name" {
+  description = "Configured API ECS service name, including when services are disabled."
+  value       = "${local.name_prefix}-api"
+}
+
 output "api_service_id" {
   description = "API ECS service ID, or null when services are disabled."
   value       = try(aws_ecs_service.api[0].id, null)
@@ -46,6 +51,11 @@ output "worker_task_definition_family" {
 output "worker_service_name" {
   description = "Worker ECS service name, or null when services are disabled."
   value       = try(aws_ecs_service.worker[0].name, null)
+}
+
+output "worker_service_configured_name" {
+  description = "Configured worker ECS service name, including when services are disabled."
+  value       = "${local.name_prefix}-worker"
 }
 
 output "worker_service_id" {
