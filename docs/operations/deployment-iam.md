@@ -4,7 +4,7 @@ This document records the deployment IAM boundary for the Production Cloud Relia
 
 ## Current Stage
 
-Stage D4 introduces the first permanent AWS-authenticated Terraform plan workflow.
+The permanent development IAM model now separates Terraform planning, Terraform apply, ECR publication, and ECS release orchestration into distinct GitHub OIDC roles.
 
 The target milestone is:
 
@@ -16,7 +16,7 @@ GitHub Actions
   -> authenticated Terraform plan
 ```
 
-This stage does not introduce Terraform apply permissions, Terraform destroy, ECS release permissions, ECR publishing changes, long-lived AWS keys, local Terraform apply, DynamoDB locking, or AdministratorAccess.
+No role uses long-lived AWS keys, DynamoDB locking, AdministratorAccess, PowerUserAccess, or IAMFullAccess. Workflow implementation for apply, publish, and release remains separate work.
 
 The bootstrap IAM transition has been completed by the operator, and the temporary AWS-side transition policy has been removed. The temporary repository workflow remains in place only for a later cleanup change and must not be used for normal operations.
 
@@ -38,7 +38,24 @@ pcrp-GitHubDevelopmentTerraformPlan
 
 The plan role is read-only for AWS infrastructure inspection and has only the S3 backend permissions required to read the approved non-bootstrap state and acquire/release native S3 lockfiles.
 
-Apply, release, publisher, shared-apply, and permanent bootstrap-apply identities are intentionally deferred until authenticated plan behavior is proven.
+The permanent development identities are:
+
+```text
+development-plan    -> pcrp-GitHubDevelopmentTerraformPlan
+development-apply   -> pcrp-GitHubDevelopmentTerraformApply
+development-publish -> pcrp-GitHubDevelopmentEcrPublisher
+development-release -> pcrp-GitHubDevelopmentEcsRelease
+```
+
+The temporary bridge remains present only until these permanent identities are provisioned and verified. Terraform Apply cannot access bootstrap state, publish images, or run migration tasks. Publisher cannot deploy ECS. Release cannot register task definitions or mutate infrastructure outside its exact runtime scope.
+
+## Release Runtime Policy Boundary
+
+The development root owns the customer-managed policy `pcrp-GitHubDevelopmentEcsReleaseRuntime` and attaches it only to `pcrp-GitHubDevelopmentEcsRelease`. Bootstrap continues to own the Release role and its exact `development-release` OIDC trust.
+
+Terraform Apply can create, version, read, tag, and delete only `arn:aws:iam::<account-id>:policy/pcrp-GitHubDevelopmentEcsReleaseRuntime`. It can attach or detach only that policy on the Release role. Explicit denies prevent Release-role trust changes, deletion, permissions-boundary changes, inline-policy mutation, and attachment of any other managed policy.
+
+The managed policy contains the existing Model B runtime permissions: migration-task execution and evidence collection, exact API/worker service promotion, exact workload-role pass-through to `ecs-tasks.amazonaws.com`, and explicit denial of Terraform-owned task-definition registration and deregistration.
 
 ## GitHub OIDC Trust
 
@@ -199,13 +216,6 @@ The workflow does not run `terraform apply`, `terraform destroy`, or upload a bi
 
 Successful execution of this workflow is not claimed until the operator provides GitHub Actions evidence.
 
-## Future Stages
+## Remaining Work
 
-Later work will introduce separate identities for:
-
-* development Terraform apply
-* shared infrastructure apply
-* ECR publishing
-* ECS migration and release orchestration
-
-Those roles should be added only after authenticated plan succeeds and should preserve separation between state access, infrastructure mutation, image publishing, and ECS release operations.
+The permanent Apply, Publisher, and Release roles and their downstream-owned permissions are represented in Terraform source. They are not claimed provisioned or runtime-verified by this change. Separate work must implement normal apply, image-publication, and release workflows, prove each OIDC environment binding, capture AccessDenied evidence for any missing read operation, and retire the temporary bridge only after the permanent paths succeed.

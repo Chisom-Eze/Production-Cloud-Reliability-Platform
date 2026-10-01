@@ -266,6 +266,32 @@ For later releases, Terraform registers new task-definition revisions but intent
 
 Rolling deployment circuit breakers are enabled for API and worker with rollback. Terraform sets `wait_for_steady_state = true` for initial creation and Terraform-owned service operations; this is not migration enforcement. Because desired count is `1`, a deployment can temporarily run two tasks and briefly increase Fargate cost.
 
+## Release IAM
+
+The development root owns the runtime customer-managed policy and its attachment to the bootstrap-created release role:
+
+```text
+pcrp-GitHubDevelopmentEcsReleaseRuntime
+  -> pcrp-GitHubDevelopmentEcsRelease
+```
+
+Bootstrap owns the role and its GitHub OIDC trust. The development root owns only the deterministic `pcrp-GitHubDevelopmentEcsReleaseRuntime` policy and attachment because this root knows the actual ECS cluster, service names, task-definition families, workload roles, log groups, and target group. Terraform Apply can manage only that policy ARN and attach or detach only that policy on the Release role; explicit denies prevent inline-policy mutation and any other managed-policy attachment.
+
+Model B ownership remains unchanged:
+
+- Terraform owns the ECS cluster, task-definition registration, service infrastructure, ALB integration, deployment circuit breaker, and autoscaling.
+- Release owns migration execution, migration verification, live API/worker service revision promotion, rollout verification, and coordinated rollback.
+
+The release role can run only the migration task-definition family on the development ECS cluster. It can describe and, for timeout cleanup, stop tasks in that cluster. It can update and describe only the development API and worker ECS services.
+
+The release role cannot register task definitions, create/delete ECS services, create/delete clusters, deregister task definitions, publish ECR images, read Terraform backend state, or administer IAM broadly.
+
+`iam:PassRole` is limited to the API execution role, API task role, worker execution role, and worker task role, with `iam:PassedToService = ecs-tasks.amazonaws.com`.
+
+Release evidence reads are limited to ECS describes, application/migration CloudWatch log-group reads, and ALB target-group health reads.
+
+`ecs:DescribeTaskDefinition` requires `Resource = "*"`; all mutating release actions remain scoped to the migration task-definition family, development cluster, exact API/worker services, or exact workload role ARNs as supported by AWS.
+
 ## ECS Service Auto Scaling
 
 Stage 4J adds AWS Application Auto Scaling for the API and worker ECS services through the reusable `modules/ecs-autoscaling` module.

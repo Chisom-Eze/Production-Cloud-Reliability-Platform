@@ -28,11 +28,11 @@ data "aws_iam_policy_document" "github_development_ecr_publish" {
 
 resource "aws_iam_policy" "github_development_ecr_publish" {
   name        = "ProductionCloudReliabilityPlatformEcrPublish"
-  description = "Least-privilege ECR image publishing policy for the GitHub development deployment role."
+  description = "Least-privilege ECR image publishing policy for the GitHub development ECR publisher role."
   policy      = data.aws_iam_policy_document.github_development_ecr_publish.json
 }
 
 resource "aws_iam_role_policy_attachment" "github_development_ecr_publish" {
-  role       = var.github_development_deployment_role_name
+  role       = var.github_development_ecr_publisher_role_name
   policy_arn = aws_iam_policy.github_development_ecr_publish.arn
 }

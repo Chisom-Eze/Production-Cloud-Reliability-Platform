@@ -2,15 +2,17 @@
 
 ## What This Layer Creates
 
-Stage 2A creates only the AWS identity and Terraform bootstrap layer:
+Bootstrap creates the AWS identity and Terraform state foundation:
 
 - Terraform state S3 bucket
 - GitHub Actions OIDC IAM identity provider
-- GitHub development deployment IAM role
-- ECR repositories for API, worker, and Nginx images
-- Least-privilege ECR image publishing permissions for the GitHub development deployment role
+- temporary GitHub development deployment bridge role
+- permanent GitHub development Terraform plan role
+- permanent GitHub development Terraform apply role and least-privilege apply policies
+- permanent GitHub development ECR publisher role
+- permanent GitHub development ECS release role
 
-It does not create ECS, VPC, RDS, ALB, SQS, application S3 buckets, Secrets Manager, deployment workflows, or application runtime infrastructure.
+It does not create ECR, ECS, VPC, RDS, ALB, SQS, application S3 buckets, Secrets Manager, deployment workflows, or application runtime infrastructure.
 
 ## Why Bootstrap Uses Local State First
 
@@ -36,37 +38,78 @@ Locking prevents two Terraform runs from modifying the same state at the same ti
 
 This bootstrap uses S3 native locking through `use_lockfile = true` because it keeps the bootstrap layer small and avoids creating an extra DynamoDB table only for locks. DynamoDB locking is still common in older Terraform estates, but this project intentionally uses the simpler current S3 backend locking path.
 
-## Trust Policy Vs Permissions Policy
+## GitHub Development Identity Model
 
-The deployment role has a trust policy that defines who may assume the role. In this stage, only one exact GitHub Actions OIDC subject is trusted.
+Bootstrap owns the GitHub OIDC provider and the permanent GitHub Actions role trust policies.
 
-The deployment role has a narrow permissions policy for ECR image publishing. Trust answers "who can become this role"; permissions answer "what can this role do after it is assumed." The role can authenticate to ECR and push project images, but it cannot create, delete, or administer ECR repositories.
+```text
+development-plan
+  -> pcrp-GitHubDevelopmentTerraformPlan
 
-## ECR Image Publishing Scope
+development-apply
+  -> pcrp-GitHubDevelopmentTerraformApply
 
-Stage 3A creates three ECR repositories:
+development-publish
+  -> pcrp-GitHubDevelopmentEcrPublisher
 
-- `production-cloud-reliability-api`
-- `production-cloud-reliability-worker`
-- `production-cloud-reliability-nginx`
+development-release
+  -> pcrp-GitHubDevelopmentEcsRelease
+```
 
-Each repository uses immutable image tags and AWS-managed AES-256 encryption. The lifecycle policy expires only untagged images older than 7 days. Tagged Git-SHA release artifacts are intentionally retained until deployment and rollback semantics are designed.
+The older `ProductionCloudReliabilityPlatform-GitHubDevelopmentDeployment` role remains a temporary bridge only. It is not a normal deployment identity and should be retired after the permanent identities are provisioned and verified.
 
-The GitHub development deployment role receives only the ECR permissions required to authenticate, upload image layers, publish image manifests, and inspect the images it pushed. `ecr:GetAuthorizationToken` must use `Resource = "*"`, because the ECR authorization token API is not repository-scoped. The remaining ECR actions are restricted to the three repository ARNs created by this root.
+The bootstrap source declares the already-authoritative Plan identity as `pcrp-GitHubDevelopmentTerraformPlan`. Before any bootstrap apply, verify that the bootstrap state address already resolves to that AWS role. If state still records the older long-form Plan role name, stop and reconcile state/import ownership before accepting any role replacement.
 
-Repository creation, lifecycle configuration, tag mutability, and repository administration remain owned by Terraform, not GitHub Actions.
+Trust answers "who can become this role"; permissions answer "what can this role do after it is assumed." Each permanent role trusts only the bootstrap-owned GitHub Actions OIDC provider and only one exact GitHub environment subject.
 
 ## Why `aud` And Exact `sub` Are Checked
 
 The `aud` claim must equal `sts.amazonaws.com`, proving the token was issued for AWS STS role assumption.
 
-The `sub` claim must exactly match:
+The permanent role `sub` claims must exactly match:
 
 ```text
-repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development
+development-plan:
+repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development-plan
+
+development-apply:
+repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development-apply
+
+development-publish:
+repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development-publish
+
+development-release:
+repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development-release
 ```
 
-That means only the intended repository identity and GitHub environment can assume this role.
+The temporary bridge role still trusts only the exact legacy `development` subject. None of the GitHub trusts use wildcards or `StringLike`.
+
+## Terraform Apply Boundary
+
+`pcrp-GitHubDevelopmentTerraformApply` can read and write only the approved non-bootstrap Terraform states:
+
+```text
+shared/container-registry/terraform.tfstate
+shared/security-audit/terraform.tfstate
+environments/development/terraform.tfstate
+```
+
+It can acquire and release those states' `.tflock` objects. It cannot delete Terraform state objects, and it has an explicit deny on:
+
+```text
+bootstrap/terraform.tfstate
+bootstrap/terraform.tfstate.tflock
+```
+
+Terraform Apply owns infrastructure mutation for the approved shared and development roots. It does not publish container images and cannot execute migration tasks. It can register task definitions because task-definition registration remains Terraform-owned.
+
+Apply permissions are split into six customer-managed policies so each document stays reviewable and below IAM managed-policy size limits: backend/state, network/edge, data/runtime, observability/audit, application IAM, and deployment-role boundaries.
+
+`Resource = "*"` remains only where the AWS API or provider discovery operation has no usable resource-level authorization, including selected read/list/describe calls, `sqs:CreateQueue`, `ecs:RegisterTaskDefinition`, CloudWatch Logs query/log-delivery control-plane calls, and AMP/Grafana workspace creation. Explicit deny statements may also use `"*"` to enforce a boundary globally. Generated infrastructure is otherwise constrained to exact ARNs or account/Region resource-type ARN patterns; Route 53 remains limited to hosted-zone ARNs because the selected zone ID is a downstream development input.
+
+Terraform Apply may manage only development/shared IAM resources intentionally owned by downstream roots. It cannot administer the GitHub OIDC provider or the GitHub deployment roles' trust policies. Its downstream exceptions are attaching the exact `ProductionCloudReliabilityPlatformEcrPublish` managed policy to `pcrp-GitHubDevelopmentEcrPublisher` and managing the exact development-owned `pcrp-GitHubDevelopmentEcsReleaseRuntime` managed policy.
+
+The Release runtime policy ARN is deterministic: `arn:aws:iam::<account-id>:policy/pcrp-GitHubDevelopmentEcsReleaseRuntime`. Apply can create, version, read, tag, and delete only that managed policy. It can attach or detach only that policy on `pcrp-GitHubDevelopmentEcsRelease`; explicit denies block inline-policy mutation and any other managed-policy attachment on the Release role.
 
 ## Why Immutable Owner And Repository IDs Matter
 
@@ -145,13 +188,10 @@ aws_s3_bucket_lifecycle_configuration.terraform_state
 aws_s3_bucket_policy.terraform_state_tls_only
 aws_iam_openid_connect_provider.github_actions
 aws_iam_role.github_development_deployment
-aws_ecr_repository.application["api"]
-aws_ecr_repository.application["worker"]
-aws_ecr_repository.application["nginx"]
-aws_ecr_lifecycle_policy.application["api"]
-aws_ecr_lifecycle_policy.application["worker"]
-aws_ecr_lifecycle_policy.application["nginx"]
-aws_iam_role_policy.github_development_ecr_publish
+aws_iam_role.github_development_terraform_plan
+aws_iam_role.github_development_terraform_apply
+aws_iam_role.github_development_ecr_publisher
+aws_iam_role.github_development_ecs_release
 ```
 
 ## Rollback And Recovery Notes

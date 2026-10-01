@@ -40,13 +40,22 @@ locals {
   ]
 
   project_iam_role_arns = [
-    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/ProductionCloudReliabilityPlatform-GitHubDevelopmentDeployment",
-    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/pcrp-GitHubDevelopmentTerraformPlan",
-    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/pcrp-GitHubDevelopmentTerraformApply"
+    local.github_development_deployment_role_arn,
+    local.github_development_terraform_plan_role_arn,
+    local.github_development_terraform_apply_role_arn,
+    local.github_development_ecr_publisher_role_arn,
+    local.github_development_ecs_release_role_arn,
+    local.development_api_execution_role_arn,
+    local.development_api_task_role_arn,
+    local.development_worker_execution_role_arn,
+    local.development_worker_task_role_arn,
+    local.development_rds_enhanced_monitoring_role_arn,
+    local.development_grafana_role_arn
   ]
 
   project_iam_policy_arns = [
-    "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/ProductionCloudReliabilityPlatformEcrPublish"
+    local.ecr_publish_policy_arn,
+    local.ecs_release_runtime_policy_arn
   ]
 }
 
@@ -71,7 +80,7 @@ resource "aws_s3_bucket_versioning" "terraform_state" {
   }
 }
 
-#trivy:ignore:AVD-AWS-0132 Artifact bucket uses the frozen SSE-S3/AES256 policy; no CMK requirement exists.
+#trivy:ignore:AVD-AWS-0132 Terraform state bucket uses the frozen SSE-S3/AES256 policy; no customer-managed KMS requirement exists.
 resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
 
@@ -172,7 +181,7 @@ data "aws_iam_policy_document" "github_development_assume_role" {
 }
 
 resource "aws_iam_role" "github_development_deployment" {
-  name               = "ProductionCloudReliabilityPlatform-GitHubDevelopmentDeployment"
+  name               = local.github_development_deployment_role_name
   description        = "Stage 2A GitHub Actions OIDC federation proof role. No broad deployment permissions yet."
   assume_role_policy = data.aws_iam_policy_document.github_development_assume_role.json
 }
@@ -205,7 +214,7 @@ data "aws_iam_policy_document" "github_development_terraform_plan_assume_role" {
 }
 
 resource "aws_iam_role" "github_development_terraform_plan" {
-  name                 = "pcrp-GitHubDevelopmentTerraformPlan"
+  name                 = local.github_development_terraform_plan_role_name
   description          = "Read-only GitHub Actions role for authenticated Terraform plan in the development environment."
   assume_role_policy   = data.aws_iam_policy_document.github_development_terraform_plan_assume_role.json
   max_session_duration = 3600
