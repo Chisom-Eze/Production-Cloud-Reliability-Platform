@@ -49,6 +49,8 @@ development-release -> pcrp-GitHubDevelopmentEcsRelease
 
 The temporary bridge remains present only until these permanent identities are provisioned and verified. Terraform Apply cannot access bootstrap state, publish images, or run migration tasks. Publisher cannot deploy ECS. Release cannot register task definitions or mutate infrastructure outside its exact runtime scope.
 
+Terraform Apply receives exactly eight bootstrap-owned managed policies: `pcrp-GitHubDevelopmentTerraformApplyBackend`, `pcrp-GitHubDevelopmentTerraformApplyNetwork`, `pcrp-GitHubDevelopmentTerraformApplyEdge`, `pcrp-GitHubDevelopmentTerraformApplyData`, `pcrp-GitHubDevelopmentTerraformApplyRuntime`, `pcrp-GitHubDevelopmentTerraformApplyObservabilityAudit`, `pcrp-GitHubDevelopmentTerraformApplyIam`, and `pcrp-GitHubDevelopmentTerraformApplyDeploymentBoundaries`. Network and Edge, and Data and Runtime, remain separate to keep each generated policy document within the AWS IAM managed-policy size limit.
+
 ## Release Runtime Policy Boundary
 
 The development root owns the customer-managed policy `pcrp-GitHubDevelopmentEcsReleaseRuntime` and attaches it only to `pcrp-GitHubDevelopmentEcsRelease`. Bootstrap continues to own the Release role and its exact `development-release` OIDC trust.

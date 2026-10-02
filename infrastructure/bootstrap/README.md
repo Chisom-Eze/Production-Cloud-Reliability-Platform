@@ -103,7 +103,7 @@ bootstrap/terraform.tfstate.tflock
 
 Terraform Apply owns infrastructure mutation for the approved shared and development roots. It does not publish container images and cannot execute migration tasks. It can register task definitions because task-definition registration remains Terraform-owned.
 
-Apply permissions are split into six customer-managed policies so each document stays reviewable and below IAM managed-policy size limits: backend/state, network/edge, data/runtime, observability/audit, application IAM, and deployment-role boundaries.
+Apply permissions are split into exactly eight bootstrap-owned customer-managed policies so each document stays reviewable and below IAM managed-policy size limits: Backend, Network, Edge, Data, Runtime, ObservabilityAudit, Iam, and DeploymentBoundaries. The Network/Edge and Data/Runtime responsibilities are separate policies because the former combined documents exceeded AWS IAM's 6144-character managed-policy limit.
 
 `Resource = "*"` remains only where the AWS API or provider discovery operation has no usable resource-level authorization, including selected read/list/describe calls, `sqs:CreateQueue`, `ecs:RegisterTaskDefinition`, CloudWatch Logs query/log-delivery control-plane calls, and AMP/Grafana workspace creation. Explicit deny statements may also use `"*"` to enforce a boundary globally. Generated infrastructure is otherwise constrained to exact ARNs or account/Region resource-type ARN patterns; Route 53 remains limited to hosted-zone ARNs because the selected zone ID is a downstream development input.
 

@@ -338,47 +338,15 @@ resource "aws_iam_role_policy_attachment" "github_development_terraform_apply_ba
   policy_arn = aws_iam_policy.github_development_terraform_apply_backend.arn
 }
 
-data "aws_iam_policy_document" "github_development_terraform_apply_network_edge" {
+data "aws_iam_policy_document" "github_development_terraform_apply_network" {
   statement {
     sid    = "ReadProviderAndNetworkMetadata"
     effect = "Allow"
     actions = [
       "sts:GetCallerIdentity",
-      "ec2:Describe*",
-      "elasticloadbalancing:Describe*",
-      "elasticloadbalancing:DescribeWebACLAssociation",
-      "acm:DescribeCertificate",
-      "acm:ListCertificates",
-      "acm:ListTagsForCertificate",
-      "route53:GetChange",
-      "route53:GetHostedZone",
-      "route53:ListResourceRecordSets",
-      "route53:ListTagsForResource",
-      "route53:ListTagsForResources",
-      "wafv2:CheckCapacity",
-      "wafv2:ListWebACLs"
+      "ec2:Describe*"
     ]
     resources = ["*"]
-  }
-
-  statement {
-    sid    = "ReadDevelopmentWafWebAcl"
-    effect = "Allow"
-    actions = [
-      "wafv2:GetLoggingConfiguration",
-      "wafv2:GetWebACL",
-      "wafv2:GetWebACLForResource",
-      "wafv2:ListResourcesForWebACL",
-      "wafv2:ListTagsForResource"
-    ]
-    resources = [local.development_waf_web_acl_arn]
-  }
-
-  statement {
-    sid       = "ReadDevelopmentAlbWebAcl"
-    effect    = "Allow"
-    actions   = ["elasticloadbalancing:GetLoadBalancerWebACL"]
-    resources = [local.development_alb_arn]
   }
 
   statement {
@@ -439,6 +407,66 @@ data "aws_iam_policy_document" "github_development_terraform_apply_network_edge"
       "ec2:ModifyVpcEndpoint"
     ]
     resources = local.development_ec2_resource_arns
+  }
+}
+
+resource "aws_iam_policy" "github_development_terraform_apply_network" {
+  name        = "pcrp-GitHubDevelopmentTerraformApplyNetwork"
+  description = "Terraform Apply VPC, subnet, routing, security-group, and endpoint permissions for approved roots."
+  policy      = data.aws_iam_policy_document.github_development_terraform_apply_network.json
+
+  lifecycle {
+    precondition {
+      condition     = length(data.aws_iam_policy_document.github_development_terraform_apply_network.json) <= 6144
+      error_message = "Terraform Apply Network policy JSON exceeds the 6144-character IAM managed-policy limit."
+    }
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "github_development_terraform_apply_network" {
+  role       = aws_iam_role.github_development_terraform_apply.name
+  policy_arn = aws_iam_policy.github_development_terraform_apply_network.arn
+}
+
+data "aws_iam_policy_document" "github_development_terraform_apply_edge" {
+  statement {
+    sid    = "ReadEdgeMetadata"
+    effect = "Allow"
+    actions = [
+      "elasticloadbalancing:Describe*",
+      "elasticloadbalancing:DescribeWebACLAssociation",
+      "acm:DescribeCertificate",
+      "acm:ListCertificates",
+      "acm:ListTagsForCertificate",
+      "route53:GetChange",
+      "route53:GetHostedZone",
+      "route53:ListResourceRecordSets",
+      "route53:ListTagsForResource",
+      "route53:ListTagsForResources",
+      "wafv2:CheckCapacity",
+      "wafv2:ListWebACLs"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ReadDevelopmentWafWebAcl"
+    effect = "Allow"
+    actions = [
+      "wafv2:GetLoggingConfiguration",
+      "wafv2:GetWebACL",
+      "wafv2:GetWebACLForResource",
+      "wafv2:ListResourcesForWebACL",
+      "wafv2:ListTagsForResource"
+    ]
+    resources = [local.development_waf_web_acl_arn]
+  }
+
+  statement {
+    sid       = "ReadDevelopmentAlbWebAcl"
+    effect    = "Allow"
+    actions   = ["elasticloadbalancing:GetLoadBalancerWebACL"]
+    resources = [local.development_alb_arn]
   }
 
   statement {
@@ -530,47 +558,35 @@ data "aws_iam_policy_document" "github_development_terraform_apply_network_edge"
   }
 }
 
-resource "aws_iam_policy" "github_development_terraform_apply_network_edge" {
-  name        = "pcrp-GitHubDevelopmentTerraformApplyNetworkEdge"
-  description = "Terraform Apply network, edge, DNS, certificate, and WAF permissions for approved roots."
-  policy      = data.aws_iam_policy_document.github_development_terraform_apply_network_edge.json
+resource "aws_iam_policy" "github_development_terraform_apply_edge" {
+  name        = "pcrp-GitHubDevelopmentTerraformApplyEdge"
+  description = "Terraform Apply ALB, certificate, DNS, and WAF permissions for approved roots."
+  policy      = data.aws_iam_policy_document.github_development_terraform_apply_edge.json
+
+  lifecycle {
+    precondition {
+      condition     = length(data.aws_iam_policy_document.github_development_terraform_apply_edge.json) <= 6144
+      error_message = "Terraform Apply Edge policy JSON exceeds the 6144-character IAM managed-policy limit."
+    }
+  }
 }
 
-resource "aws_iam_role_policy_attachment" "github_development_terraform_apply_network_edge" {
+resource "aws_iam_role_policy_attachment" "github_development_terraform_apply_edge" {
   role       = aws_iam_role.github_development_terraform_apply.name
-  policy_arn = aws_iam_policy.github_development_terraform_apply_network_edge.arn
+  policy_arn = aws_iam_policy.github_development_terraform_apply_edge.arn
 }
 
-data "aws_iam_policy_document" "github_development_terraform_apply_data_runtime" {
+data "aws_iam_policy_document" "github_development_terraform_apply_data" {
   statement {
-    sid    = "ReadRuntimeConfiguration"
+    sid    = "ReadDataConfiguration"
     effect = "Allow"
     actions = [
-      "application-autoscaling:DescribeScalableTargets",
-      "application-autoscaling:DescribeScalingActivities",
-      "application-autoscaling:DescribeScalingPolicies",
-      "ecs:DescribeClusters",
-      "ecs:DescribeServices",
-      "ecs:DescribeTaskDefinition",
-      "ecs:ListTagsForResource",
       "rds:DescribeDBInstances",
       "rds:DescribeDBSubnetGroups",
       "rds:DescribePendingMaintenanceActions",
       "rds:ListTagsForResource"
     ]
     resources = ["*"]
-  }
-
-  statement {
-    sid    = "ReadProjectEcrConfiguration"
-    effect = "Allow"
-    actions = [
-      "ecr:DescribeImages",
-      "ecr:DescribeRepositories",
-      "ecr:GetLifecyclePolicy",
-      "ecr:ListTagsForResource"
-    ]
-    resources = local.project_ecr_repository_arns
   }
 
   statement {
@@ -679,6 +695,53 @@ data "aws_iam_policy_document" "github_development_terraform_apply_data_runtime"
     ]
     resources = local.project_sqs_queue_arns
   }
+}
+
+resource "aws_iam_policy" "github_development_terraform_apply_data" {
+  name        = "pcrp-GitHubDevelopmentTerraformApplyData"
+  description = "Terraform Apply S3, RDS, generated-secret metadata, and SQS infrastructure permissions."
+  policy      = data.aws_iam_policy_document.github_development_terraform_apply_data.json
+
+  lifecycle {
+    precondition {
+      condition     = length(data.aws_iam_policy_document.github_development_terraform_apply_data.json) <= 6144
+      error_message = "Terraform Apply Data policy JSON exceeds the 6144-character IAM managed-policy limit."
+    }
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "github_development_terraform_apply_data" {
+  role       = aws_iam_role.github_development_terraform_apply.name
+  policy_arn = aws_iam_policy.github_development_terraform_apply_data.arn
+}
+
+data "aws_iam_policy_document" "github_development_terraform_apply_runtime" {
+  statement {
+    sid    = "ReadRuntimeConfiguration"
+    effect = "Allow"
+    actions = [
+      "application-autoscaling:DescribeScalableTargets",
+      "application-autoscaling:DescribeScalingActivities",
+      "application-autoscaling:DescribeScalingPolicies",
+      "ecs:DescribeClusters",
+      "ecs:DescribeServices",
+      "ecs:DescribeTaskDefinition",
+      "ecs:ListTagsForResource"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ReadProjectEcrConfiguration"
+    effect = "Allow"
+    actions = [
+      "ecr:DescribeImages",
+      "ecr:DescribeRepositories",
+      "ecr:GetLifecyclePolicy",
+      "ecr:ListTagsForResource"
+    ]
+    resources = local.project_ecr_repository_arns
+  }
 
   statement {
     sid    = "ManageEcsClusterServicesAndTaskDefinitions"
@@ -758,15 +821,22 @@ data "aws_iam_policy_document" "github_development_terraform_apply_data_runtime"
   }
 }
 
-resource "aws_iam_policy" "github_development_terraform_apply_data_runtime" {
-  name        = "pcrp-GitHubDevelopmentTerraformApplyDataRuntime"
-  description = "Terraform Apply data-plane infrastructure, ECS registration, ECR infrastructure, and autoscaling permissions."
-  policy      = data.aws_iam_policy_document.github_development_terraform_apply_data_runtime.json
+resource "aws_iam_policy" "github_development_terraform_apply_runtime" {
+  name        = "pcrp-GitHubDevelopmentTerraformApplyRuntime"
+  description = "Terraform Apply ECS, task-definition, autoscaling, and ECR infrastructure permissions."
+  policy      = data.aws_iam_policy_document.github_development_terraform_apply_runtime.json
+
+  lifecycle {
+    precondition {
+      condition     = length(data.aws_iam_policy_document.github_development_terraform_apply_runtime.json) <= 6144
+      error_message = "Terraform Apply Runtime policy JSON exceeds the 6144-character IAM managed-policy limit."
+    }
+  }
 }
 
-resource "aws_iam_role_policy_attachment" "github_development_terraform_apply_data_runtime" {
+resource "aws_iam_role_policy_attachment" "github_development_terraform_apply_runtime" {
   role       = aws_iam_role.github_development_terraform_apply.name
-  policy_arn = aws_iam_policy.github_development_terraform_apply_data_runtime.arn
+  policy_arn = aws_iam_policy.github_development_terraform_apply_runtime.arn
 }
 
 data "aws_iam_policy_document" "github_development_terraform_apply_observability_audit" {
@@ -1067,9 +1137,9 @@ data "aws_iam_policy_document" "github_development_terraform_apply_iam" {
   }
 
   statement {
-    sid       = "PassEcsTaskRolesToEcsTasksOnly"
-    effect    = "Allow"
-    actions   = ["iam:PassRole"]
+    sid    = "PassEcsTaskRolesToEcsTasksOnly"
+    effect = "Allow"
+    actions = ["iam:PassRole"]
     resources = local.development_workload_role_arns
 
     condition {
@@ -1080,8 +1150,8 @@ data "aws_iam_policy_document" "github_development_terraform_apply_iam" {
   }
 
   statement {
-    sid     = "PassRdsEnhancedMonitoringRoleOnly"
-    effect  = "Allow"
+    sid    = "PassRdsEnhancedMonitoringRoleOnly"
+    effect = "Allow"
     actions = ["iam:PassRole"]
     resources = [
       local.development_rds_enhanced_monitoring_role_arn
@@ -1095,8 +1165,8 @@ data "aws_iam_policy_document" "github_development_terraform_apply_iam" {
   }
 
   statement {
-    sid     = "PassGrafanaWorkspaceRoleOnly"
-    effect  = "Allow"
+    sid    = "PassGrafanaWorkspaceRoleOnly"
+    effect = "Allow"
     actions = ["iam:PassRole"]
     resources = [
       local.development_grafana_role_arn
