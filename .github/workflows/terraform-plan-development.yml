@@ -2,13 +2,21 @@ name: Terraform Development Plan
 
 on:
   workflow_dispatch:
+    inputs:
+      root:
+        description: "Shared Terraform root to plan."
+        required: true
+        type: choice
+        options:
+          - shared/container-registry
+          - shared/security-audit
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: terraform-plan-development-${{ github.ref }}
+  group: terraform-plan-development-${{ inputs.root }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -17,10 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: development-plan
 
-    defaults:
-      run:
-        working-directory: infrastructure/shared/container-registry
-
     env:
       AWS_REGION: us-east-1
       TERRAFORM_PLAN_ROLE_ARN: ${{ vars.AWS_DEVELOPMENT_TERRAFORM_PLAN_ROLE_ARN }}
@@ -28,16 +32,56 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       TF_STATE_BUCKET: pcrp-terraform-state-us-east-1
-      TF_STATE_KEY: shared/container-registry/terraform.tfstate
+      TF_VERSION: "1.10.0"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.10.0"
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Resolve approved Terraform root
+        id: resolve-root
+        env:
+          SELECTED_ROOT: ${{ inputs.root }}
+        run: |
+          set -euo pipefail
+
+          case "${SELECTED_ROOT}" in
+            shared/container-registry)
+              tf_root="infrastructure/shared/container-registry"
+              state_key="shared/container-registry/terraform.tfstate"
+              root_slug="container-registry"
+              ;;
+            shared/security-audit)
+              tf_root="infrastructure/shared/security-audit"
+              state_key="shared/security-audit/terraform.tfstate"
+              root_slug="security-audit"
+              ;;
+            *)
+              echo "::error::Unsupported Terraform root."
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "TF_LOGICAL_ROOT=${SELECTED_ROOT}"
+            echo "TF_ROOT=${tf_root}"
+            echo "TF_STATE_KEY=${state_key}"
+            echo "TF_ROOT_SLUG=${root_slug}"
+          } >> "${GITHUB_ENV}"
+
+          {
+            echo "logical_root=${SELECTED_ROOT}"
+            echo "tf_root=${tf_root}"
+            echo "state_key=${state_key}"
+            echo "root_slug=${root_slug}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Confirm Terraform plan role configuration
         run: |
@@ -53,29 +97,12 @@ jobs:
           role-to-assume: ${{ env.TERRAFORM_PLAN_ROLE_ARN }}
           role-session-name: terraform-plan-${{ github.run_id }}
 
-      - name: Validate and plan container registry root
+      - name: Check Terraform formatting
+        run: terraform -chdir="${TF_ROOT}" fmt -check
+
+      - name: Initialize selected Terraform backend
         run: |
-          set -euo pipefail
-
-          terraform_result="failed"
-
-          write_summary() {
-            {
-              echo "## Terraform Development Plan"
-              echo ""
-              echo "- Root: infrastructure/shared/container-registry"
-              echo "- AWS region: ${AWS_REGION}"
-              echo "- Backend state key: ${TF_STATE_KEY}"
-              echo "- Identity: ${TERRAFORM_PLAN_ROLE_NAME}"
-              echo "- Terraform result: ${terraform_result}"
-            } >> "${GITHUB_STEP_SUMMARY}"
-          }
-
-          trap write_summary EXIT
-
-          terraform fmt -check
-
-          terraform init \
+          terraform -chdir="${TF_ROOT}" init \
             -input=false \
             -lockfile=readonly \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
@@ -84,21 +111,114 @@ jobs:
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
 
-          terraform validate -no-color
+      - name: Validate selected Terraform root
+        run: terraform -chdir="${TF_ROOT}" validate -no-color
+
+      - name: Create exact Terraform binary plan
+        id: terraform-plan
+        run: |
+          set -euo pipefail
 
           set +e
-          terraform plan \
+          terraform -chdir="${TF_ROOT}" plan \
             -input=false \
             -no-color \
-            -detailed-exitcode
+            -detailed-exitcode \
+            -out=tfplan
           plan_exit_code=$?
           set -e
 
-          if [[ "${plan_exit_code}" -eq 0 ]]; then
-            terraform_result="no changes"
-          elif [[ "${plan_exit_code}" -eq 2 ]]; then
-            terraform_result="changes detected"
-          else
-            terraform_result="failed"
-            exit "${plan_exit_code}"
-          fi
+          case "${plan_exit_code}" in
+            0)
+              plan_result="no changes"
+              ;;
+            2)
+              plan_result="changes detected"
+              ;;
+            *)
+              echo "::error::Terraform plan failed with exit code ${plan_exit_code}."
+              exit "${plan_exit_code}"
+              ;;
+          esac
+
+          echo "plan_result=${plan_result}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create plan metadata
+        id: plan-metadata
+        env:
+          PLAN_RESULT: ${{ steps.terraform-plan.outputs.plan_result }}
+        run: |
+          set -euo pipefail
+
+          plan_file="${TF_ROOT}/tfplan"
+          metadata_file="${TF_ROOT}/plan-metadata.json"
+          artifact_name="terraform-plan-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}-${TF_ROOT_SLUG}"
+          plan_sha256="$(sha256sum "${plan_file}" | awk '{print $1}')"
+
+          jq -n \
+            --argjson schema_version 1 \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg workflow_name "${GITHUB_WORKFLOW}" \
+            --arg workflow_run_id "${GITHUB_RUN_ID}" \
+            --arg workflow_run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg source_git_sha "${GITHUB_SHA}" \
+            --arg source_ref "${GITHUB_REF}" \
+            --arg root "${TF_LOGICAL_ROOT}" \
+            --arg terraform_root "${TF_ROOT}" \
+            --arg backend_state_key "${TF_STATE_KEY}" \
+            --arg aws_region "${AWS_REGION}" \
+            --arg terraform_version "${TF_VERSION}" \
+            --arg plan_result "${PLAN_RESULT}" \
+            --arg tfplan_sha256 "${plan_sha256}" \
+            '{
+              schema_version: $schema_version,
+              repository: $repository,
+              workflow_name: $workflow_name,
+              workflow_run_id: $workflow_run_id,
+              workflow_run_attempt: $workflow_run_attempt,
+              source_git_sha: $source_git_sha,
+              source_ref: $source_ref,
+              root: $root,
+              terraform_root: $terraform_root,
+              backend_state_key: $backend_state_key,
+              aws_region: $aws_region,
+              terraform_version: $terraform_version,
+              plan_result: $plan_result,
+              tfplan_sha256: $tfplan_sha256
+            }' > "${metadata_file}"
+
+          {
+            echo "artifact_name=${artifact_name}"
+            echo "plan_sha256=${plan_sha256}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Upload immutable Terraform plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.plan-metadata.outputs.artifact_name }}
+          path: |
+            ${{ steps.resolve-root.outputs.tf_root }}/tfplan
+            ${{ steps.resolve-root.outputs.tf_root }}/plan-metadata.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+      - name: Write Terraform plan summary
+        env:
+          ARTIFACT_NAME: ${{ steps.plan-metadata.outputs.artifact_name }}
+          PLAN_RESULT: ${{ steps.terraform-plan.outputs.plan_result }}
+          PLAN_SHA256: ${{ steps.plan-metadata.outputs.plan_sha256 }}
+        run: |
+          {
+            echo "## Terraform Development Plan"
+            echo ""
+            echo "- Selected root: ${TF_LOGICAL_ROOT}"
+            echo "- Plan run ID: ${GITHUB_RUN_ID}"
+            echo "- Plan run attempt: ${GITHUB_RUN_ATTEMPT}"
+            echo "- Source SHA: ${GITHUB_SHA}"
+            echo "- Backend state key: ${TF_STATE_KEY}"
+            echo "- Plan identity: ${TERRAFORM_PLAN_ROLE_NAME}"
+            echo "- Plan result: ${PLAN_RESULT}"
+            echo "- Artifact: ${ARTIFACT_NAME}"
+            echo "- Plan SHA-256: ${PLAN_SHA256}"
+          } >> "${GITHUB_STEP_SUMMARY}"

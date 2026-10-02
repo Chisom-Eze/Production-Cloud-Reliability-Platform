@@ -1,0 +1,303 @@
+name: Terraform Development Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      plan_run_id:
+        description: "Successful Terraform Development Plan workflow run ID."
+        required: true
+        type: string
+      plan_run_attempt:
+        description: "Exact successful Terraform Development Plan workflow run attempt."
+        required: true
+        type: string
+      root:
+        description: "Shared Terraform root represented by the approved plan."
+        required: true
+        type: choice
+        options:
+          - shared/container-registry
+          - shared/security-audit
+      confirmation:
+        description: "Must exactly equal APPLY-DEVELOPMENT-TERRAFORM."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: terraform-apply-development-${{ inputs.root }}
+  cancel-in-progress: false
+
+jobs:
+  terraform-apply:
+    name: Terraform apply
+    runs-on: ubuntu-latest
+    environment: development-apply
+
+    env:
+      AWS_REGION: us-east-1
+      TERRAFORM_APPLY_ROLE_ARN: ${{ vars.AWS_DEVELOPMENT_TERRAFORM_APPLY_ROLE_ARN }}
+      TERRAFORM_APPLY_ROLE_NAME: pcrp-GitHubDevelopmentTerraformApply
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_STATE_BUCKET: pcrp-terraform-state-us-east-1
+      TF_VERSION: "1.10.0"
+
+    steps:
+      - name: Validate manual apply confirmation
+        env:
+          APPLY_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [[ "${APPLY_CONFIRMATION}" != "APPLY-DEVELOPMENT-TERRAFORM" ]]; then
+            echo "::error::Apply requires confirmation value APPLY-DEVELOPMENT-TERRAFORM."
+            exit 1
+          fi
+
+      - name: Resolve approved Terraform root and artifact
+        id: resolve-root
+        env:
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+          PLAN_RUN_ATTEMPT: ${{ inputs.plan_run_attempt }}
+          SELECTED_ROOT: ${{ inputs.root }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${PLAN_RUN_ID}" =~ ^[0-9]+$ ]]; then
+            echo "::error::plan_run_id must contain only digits."
+            exit 1
+          fi
+
+          if [[ ! "${PLAN_RUN_ATTEMPT}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::plan_run_attempt must be a positive integer."
+            exit 1
+          fi
+
+          case "${SELECTED_ROOT}" in
+            shared/container-registry)
+              tf_root="infrastructure/shared/container-registry"
+              state_key="shared/container-registry/terraform.tfstate"
+              root_slug="container-registry"
+              ;;
+            shared/security-audit)
+              tf_root="infrastructure/shared/security-audit"
+              state_key="shared/security-audit/terraform.tfstate"
+              root_slug="security-audit"
+              ;;
+            *)
+              echo "::error::Unsupported Terraform root."
+              exit 1
+              ;;
+          esac
+
+          artifact_name="terraform-plan-${PLAN_RUN_ID}-attempt-${PLAN_RUN_ATTEMPT}-${root_slug}"
+
+          {
+            echo "TF_LOGICAL_ROOT=${SELECTED_ROOT}"
+            echo "TF_ROOT=${tf_root}"
+            echo "TF_STATE_KEY=${state_key}"
+            echo "TF_ROOT_SLUG=${root_slug}"
+            echo "PLAN_ARTIFACT_NAME=${artifact_name}"
+            echo "PLAN_RUN_ATTEMPT=${PLAN_RUN_ATTEMPT}"
+          } >> "${GITHUB_ENV}"
+
+          {
+            echo "logical_root=${SELECTED_ROOT}"
+            echo "tf_root=${tf_root}"
+            echo "state_key=${state_key}"
+            echo "root_slug=${root_slug}"
+            echo "artifact_name=${artifact_name}"
+            echo "plan_run_attempt=${PLAN_RUN_ATTEMPT}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Verify exact successful main Plan workflow attempt
+        id: verify-plan-run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+          PLAN_RUN_ATTEMPT: ${{ inputs.plan_run_attempt }}
+          PLAN_WORKFLOW_NAME: Terraform Development Plan
+          PLAN_WORKFLOW_PATH: .github/workflows/terraform-plan-development.yml
+        run: |
+          set -euo pipefail
+
+          run_json="${RUNNER_TEMP}/terraform-plan-run.json"
+
+          curl \
+            --fail-with-body \
+            --silent \
+            --show-error \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output "${run_json}" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${PLAN_RUN_ID}/attempts/${PLAN_RUN_ATTEMPT}"
+
+          jq -e \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg run_id "${PLAN_RUN_ID}" \
+            --arg run_attempt "${PLAN_RUN_ATTEMPT}" \
+            --arg workflow_name "${PLAN_WORKFLOW_NAME}" \
+            --arg workflow_path "${PLAN_WORKFLOW_PATH}" \
+            '(.id | tostring) == $run_id
+              and (.run_attempt | tostring) == $run_attempt
+              and .repository.full_name == $repository
+              and .head_repository.full_name == $repository
+              and .name == $workflow_name
+              and .path == $workflow_path
+              and .status == "completed"
+              and .conclusion == "success"
+              and .event == "workflow_dispatch"
+              and .head_branch == "main"
+              and (.head_sha | test("^[0-9a-f]{40}$"))' \
+            "${run_json}" > /dev/null || {
+              echo "::error::Plan run provenance validation failed."
+              exit 1
+            }
+
+          plan_head_sha="$(jq -r '.head_sha' "${run_json}")"
+          echo "PLAN_HEAD_SHA=${plan_head_sha}" >> "${GITHUB_ENV}"
+          echo "plan_head_sha=${plan_head_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout exact Plan source SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.verify-plan-run.outputs.plan_head_sha }}
+          persist-credentials: false
+
+      - name: Download exact Plan workflow artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ steps.resolve-root.outputs.artifact_name }}
+          path: ${{ runner.temp }}/approved-terraform-plan
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.plan_run_id }}
+
+      - name: Validate Plan metadata, source, and digest
+        id: validate-plan-artifact
+        env:
+          PLAN_ARTIFACT_DIRECTORY: ${{ runner.temp }}/approved-terraform-plan
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+          PLAN_RUN_ATTEMPT: ${{ inputs.plan_run_attempt }}
+          PLAN_WORKFLOW_NAME: Terraform Development Plan
+        run: |
+          set -euo pipefail
+
+          plan_file="${PLAN_ARTIFACT_DIRECTORY}/tfplan"
+          metadata_file="${PLAN_ARTIFACT_DIRECTORY}/plan-metadata.json"
+
+          if [[ ! -f "${plan_file}" || ! -f "${metadata_file}" ]]; then
+            echo "::error::The approved artifact must contain tfplan and plan-metadata.json."
+            exit 1
+          fi
+
+          checked_out_sha="$(git rev-parse HEAD)"
+          if [[ "${checked_out_sha}" != "${PLAN_HEAD_SHA}" ]]; then
+            echo "::error::Checked-out SHA does not match the verified Plan run head SHA."
+            exit 1
+          fi
+
+          plan_sha256="$(sha256sum "${plan_file}" | awk '{print $1}')"
+
+          jq -e \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg workflow_name "${PLAN_WORKFLOW_NAME}" \
+            --arg run_id "${PLAN_RUN_ID}" \
+            --arg run_attempt "${PLAN_RUN_ATTEMPT}" \
+            --arg source_git_sha "${PLAN_HEAD_SHA}" \
+            --arg source_ref "refs/heads/main" \
+            --arg root "${TF_LOGICAL_ROOT}" \
+            --arg terraform_root "${TF_ROOT}" \
+            --arg backend_state_key "${TF_STATE_KEY}" \
+            --arg aws_region "${AWS_REGION}" \
+            --arg terraform_version "${TF_VERSION}" \
+            --arg plan_sha256 "${plan_sha256}" \
+            '.schema_version == 1
+              and .repository == $repository
+              and .workflow_name == $workflow_name
+              and (.workflow_run_id | tostring) == $run_id
+              and (.workflow_run_attempt | tostring) == $run_attempt
+              and .source_git_sha == $source_git_sha
+              and .source_ref == $source_ref
+              and .root == $root
+              and .terraform_root == $terraform_root
+              and .backend_state_key == $backend_state_key
+              and .aws_region == $aws_region
+              and .terraform_version == $terraform_version
+              and (.plan_result == "no changes" or .plan_result == "changes detected")
+              and .tfplan_sha256 == $plan_sha256' \
+            "${metadata_file}" > /dev/null || {
+              echo "::error::Plan artifact metadata or digest validation failed."
+              exit 1
+            }
+
+          {
+            echo "plan_file=${plan_file}"
+            echo "plan_sha256=${plan_sha256}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Confirm Terraform apply role configuration
+        run: |
+          if [[ -z "${TERRAFORM_APPLY_ROLE_ARN}" ]]; then
+            echo "::error::Set the development-apply environment variable AWS_DEVELOPMENT_TERRAFORM_APPLY_ROLE_ARN."
+            exit 1
+          fi
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials through GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.TERRAFORM_APPLY_ROLE_ARN }}
+          role-session-name: terraform-apply-${{ github.run_id }}
+
+      - name: Initialize verified Terraform backend
+        run: |
+          terraform -chdir="${TF_ROOT}" init \
+            -input=false \
+            -lockfile=readonly \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Apply exact verified binary plan
+        id: terraform-apply
+        env:
+          VERIFIED_PLAN_FILE: ${{ steps.validate-plan-artifact.outputs.plan_file }}
+        run: |
+          terraform -chdir="${TF_ROOT}" apply \
+            -input=false \
+            -no-color \
+            "${VERIFIED_PLAN_FILE}"
+
+      - name: Write Terraform apply summary
+        if: ${{ always() && steps.validate-plan-artifact.outcome == 'success' }}
+        env:
+          APPLY_RESULT: ${{ steps.terraform-apply.outcome }}
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+          PLAN_RUN_ATTEMPT: ${{ inputs.plan_run_attempt }}
+          PLAN_SHA256: ${{ steps.validate-plan-artifact.outputs.plan_sha256 }}
+        run: |
+          {
+            echo "## Terraform Development Apply"
+            echo ""
+            echo "- Selected root: ${TF_LOGICAL_ROOT}"
+            echo "- Source SHA: ${PLAN_HEAD_SHA}"
+            echo "- Plan workflow run ID: ${PLAN_RUN_ID}"
+            echo "- Plan workflow run attempt: ${PLAN_RUN_ATTEMPT}"
+            echo "- Plan artifact: ${PLAN_ARTIFACT_NAME}"
+            echo "- Plan SHA-256: ${PLAN_SHA256}"
+            echo "- Backend state key: ${TF_STATE_KEY}"
+            echo "- Apply identity: ${TERRAFORM_APPLY_ROLE_NAME}"
+            echo "- Apply result: ${APPLY_RESULT}"
+          } >> "${GITHUB_STEP_SUMMARY}"
