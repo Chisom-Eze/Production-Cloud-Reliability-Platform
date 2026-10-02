@@ -13,10 +13,13 @@ GitHub Actions
   -> GitHub OIDC
   -> pcrp-GitHubDevelopmentTerraformPlan
   -> remote S3 state with native S3 locking
-  -> authenticated Terraform plan
+  -> exact binary Terraform plan artifact
+  -> human review
+  -> pcrp-GitHubDevelopmentTerraformApply
+  -> apply the exact reviewed plan
 ```
 
-No role uses long-lived AWS keys, DynamoDB locking, AdministratorAccess, PowerUserAccess, or IAMFullAccess. Workflow implementation for apply, publish, and release remains separate work.
+No role uses long-lived AWS keys, DynamoDB locking, AdministratorAccess, PowerUserAccess, or IAMFullAccess. Workflow implementation for publish and release remains separate work.
 
 The bootstrap IAM transition has been completed by the operator, and the temporary AWS-side transition policy has been removed. The temporary repository workflow remains in place only for a later cleanup change and must not be used for normal operations.
 
@@ -61,45 +64,53 @@ The managed policy contains the existing Model B runtime permissions: migration-
 
 ## GitHub OIDC Trust
 
-The plan role trusts the existing bootstrap-owned GitHub OIDC provider.
+The Plan and Apply roles trust the existing bootstrap-owned GitHub OIDC provider through separate GitHub environments.
 
-Trust requires both:
+Each role trust checks `aud` and its exact environment-specific `sub`:
 
 ```text
 aud = sts.amazonaws.com
 sub = repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development-plan
+
+aud = sts.amazonaws.com
+sub = repo:Chisom-Eze@215772129/Production-Cloud-Reliability-Platform@1340202037:environment:development-apply
 ```
 
 The trust uses the same immutable owner/repository ID subject format already used by bootstrap. It does not use wildcard repository trust, organization-wide trust, or mutable repository-name-only trust.
 
-The future workflow that uses this role must run in the GitHub environment named:
+The permanent workflows use these GitHub environments:
 
 ```text
-development-plan
+Terraform Development Plan  -> development-plan
+Terraform Development Apply -> development-apply
 ```
 
 ## State Boundary
 
-The first permanent plan proof supports only this Terraform root:
+The permanent development Plan and Apply workflows currently support only these shared Terraform roots:
 
 ```text
-shared/container-registry/terraform.tfstate
+infrastructure/shared/container-registry
+  -> shared/container-registry/terraform.tfstate
+
+infrastructure/shared/security-audit
+  -> shared/security-audit/terraform.tfstate
 ```
 
-The workflow initializes the S3 backend explicitly with:
+Both workflows map the selected logical root through an explicit allowlist. They do not accept arbitrary filesystem paths or backend keys. Each selected root initializes the S3 backend with:
 
 ```text
 bucket       = pcrp-terraform-state-us-east-1
-key          = shared/container-registry/terraform.tfstate
 region       = us-east-1
 encrypt      = true
 use_lockfile = true
 ```
 
-It can acquire and release the native S3 lockfile for that state:
+The corresponding native S3 lockfiles are:
 
 ```text
 shared/container-registry/terraform.tfstate.tflock
+shared/security-audit/terraform.tfstate.tflock
 ```
 
 The plan role cannot write or delete `.tfstate` objects.
@@ -115,7 +126,7 @@ Bootstrap state remains outside normal development plan authority because it own
 
 ## AWS Boundary
 
-Terraform plan may inspect AWS configuration required for provider refresh, data sources, and planning. The first proof workflow exercises only the shared container registry root.
+Terraform plan may inspect AWS configuration required for provider refresh, data sources, and planning. The permanent workflow currently exercises only the shared container-registry and security-audit roots.
 
 The plan identity has no apply, destroy, release, or publisher authority.
 
@@ -186,7 +197,7 @@ The workflow:
 * applies only the exact saved plan file
 * requires confirmation value `APPLY-BOOTSTRAP-IAM` before apply
 
-After the permanent plan workflow succeeds end-to-end and evidence is captured, remove this temporary workflow in a separate cleanup change.
+After the permanent Plan and Apply workflows succeed end-to-end and evidence is captured, remove this temporary workflow in a separate cleanup change.
 
 ## Permanent Development Plan Workflow
 
@@ -196,7 +207,7 @@ Stage D4 adds:
 .github/workflows/terraform-plan-development.yml
 ```
 
-The workflow:
+The Plan workflow:
 
 * runs only through `workflow_dispatch`
 * has no push trigger
@@ -205,19 +216,40 @@ The workflow:
 * uses the `development-plan` GitHub environment
 * reads the role ARN from `vars.AWS_DEVELOPMENT_TERRAFORM_PLAN_ROLE_ARN`
 * assumes `pcrp-GitHubDevelopmentTerraformPlan` through GitHub OIDC
-* operates only in `infrastructure/shared/container-registry`
+* accepts only `shared/container-registry` or `shared/security-audit`
+* maps the selected root to its exact filesystem path, backend key, and artifact slug
 * initializes the S3 backend explicitly and does not depend on local `backend.s3.tfbackend`
 * runs `terraform fmt -check`
 * runs `terraform validate`
-* runs `terraform plan -detailed-exitcode`
+* runs `terraform plan -detailed-exitcode -out=tfplan`
 * treats exit code `0` as no changes
 * treats exit code `2` as successful changes detected
 * treats exit code `1` as failure
+* records repository, run, source, root, backend, region, Terraform version, result, and SHA-256 metadata
+* uploads `tfplan` and `plan-metadata.json` as `terraform-plan-<run-id>-<root-slug>` for seven days
 
-The workflow does not run `terraform apply`, `terraform destroy`, or upload a binary plan artifact.
+The Plan workflow does not run `terraform apply` or `terraform destroy`.
 
-Successful execution of this workflow is not claimed until the operator provides GitHub Actions evidence.
+## Permanent Development Apply Workflow
+
+The separately dispatched `.github/workflows/terraform-apply-development.yml` workflow:
+
+* requires the exact confirmation `APPLY-DEVELOPMENT-TERRAFORM`
+* uses `contents: read`, `actions: read`, and `id-token: write`
+* uses the `development-apply` GitHub environment
+* reads the role ARN from `vars.AWS_DEVELOPMENT_TERRAFORM_APPLY_ROLE_ARN`
+* validates that `plan_run_id` identifies a successful `workflow_dispatch` run of `terraform-plan-development.yml` from `main` in the same repository
+* checks out the exact Plan run head SHA rather than moving `main`
+* downloads only the deterministic artifact for that Plan run and selected root
+* validates the artifact metadata, allowlisted path and backend key, repository, run ID, source SHA, checked-out SHA, region, Terraform version, plan result, and plan SHA-256
+* assumes `pcrp-GitHubDevelopmentTerraformApply` only after those checks succeed
+* initializes the verified backend and applies only the downloaded binary plan
+* never generates a replacement plan
+
+Bootstrap and `infrastructure/environments/development` are not selectable. The development environment root remains blocked until its required deployment inputs and immutable release artifacts are resolved.
+
+Successful execution of either permanent workflow is not claimed until the operator provides GitHub Actions evidence.
 
 ## Remaining Work
 
-The permanent Apply, Publisher, and Release roles and their downstream-owned permissions are represented in Terraform source. They are not claimed provisioned or runtime-verified by this change. Separate work must implement normal apply, image-publication, and release workflows, prove each OIDC environment binding, capture AccessDenied evidence for any missing read operation, and retire the temporary bridge only after the permanent paths succeed.
+The permanent Apply, Publisher, and Release roles and their downstream-owned permissions are represented in Terraform source. The Plan and Apply workflow control plane is now represented for the two shared roots, but is not claimed runtime-verified by this change. Separate work must implement image-publication and release workflows, resolve development deployment inputs and immutable release artifacts, prove each OIDC environment binding, capture AccessDenied evidence for any missing operation, and retire the temporary bridge only after the permanent paths succeed.
