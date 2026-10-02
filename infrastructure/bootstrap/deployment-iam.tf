@@ -1137,9 +1137,9 @@ data "aws_iam_policy_document" "github_development_terraform_apply_iam" {
   }
 
   statement {
-    sid    = "PassEcsTaskRolesToEcsTasksOnly"
-    effect = "Allow"
-    actions = ["iam:PassRole"]
+    sid       = "PassEcsTaskRolesToEcsTasksOnly"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
     resources = local.development_workload_role_arns
 
     condition {
@@ -1150,8 +1150,8 @@ data "aws_iam_policy_document" "github_development_terraform_apply_iam" {
   }
 
   statement {
-    sid    = "PassRdsEnhancedMonitoringRoleOnly"
-    effect = "Allow"
+    sid     = "PassRdsEnhancedMonitoringRoleOnly"
+    effect  = "Allow"
     actions = ["iam:PassRole"]
     resources = [
       local.development_rds_enhanced_monitoring_role_arn
@@ -1165,8 +1165,8 @@ data "aws_iam_policy_document" "github_development_terraform_apply_iam" {
   }
 
   statement {
-    sid    = "PassGrafanaWorkspaceRoleOnly"
-    effect = "Allow"
+    sid     = "PassGrafanaWorkspaceRoleOnly"
+    effect  = "Allow"
     actions = ["iam:PassRole"]
     resources = [
       local.development_grafana_role_arn
