@@ -186,7 +186,7 @@ resource "aws_cloudwatch_event_rule" "root_activity" {
 }
 
 resource "aws_cloudwatch_event_rule" "cloudtrail_tampering" {
-  name        = "${local.name_prefix}-cloudtrail-tampering-critical"
+  name        = "pcrp-cloudtrail-tampering-critical"
   description = "Critical security visibility for CloudTrail configuration tampering."
 
   event_pattern = jsonencode({
@@ -210,7 +210,7 @@ resource "aws_cloudwatch_event_rule" "cloudtrail_tampering" {
 }
 
 resource "aws_cloudwatch_event_rule" "iam_privilege_change" {
-  name        = "${local.name_prefix}-iam-privilege-change-warning"
+  name        = "pcrp-iam-privilege-change-warning"
   description = "Security visibility for material IAM privilege changes."
 
   event_pattern = jsonencode({
@@ -242,7 +242,7 @@ resource "aws_cloudwatch_event_rule" "iam_privilege_change" {
 }
 
 resource "aws_cloudwatch_event_rule" "network_perimeter_change" {
-  name        = "${local.name_prefix}-network-perimeter-change-warning"
+  name        = "pcrp-network-perimeter-change-warning"
   description = "Security visibility for material ingress, egress, and routing changes."
 
   event_pattern = jsonencode({
@@ -298,7 +298,7 @@ resource "aws_cloudwatch_event_rule" "s3_security_change" {
 }
 
 resource "aws_cloudwatch_event_rule" "console_login_without_mfa" {
-  name        = "${local.name_prefix}-console-login-without-mfa-warning"
+  name        = "pcrp-console-login-without-mfa-warning"
   description = "Security visibility for successful console login events where MFA was not used."
 
   event_pattern = jsonencode({
