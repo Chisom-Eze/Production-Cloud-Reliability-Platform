@@ -73,6 +73,8 @@ The development root owns the customer-managed policy `pcrp-GitHubDevelopmentEcs
 
 Terraform Apply can manage only `arn:aws:iam::<account-id>:policy/pcrp-GitHubDevelopmentEcsReleaseRuntime` and can attach or detach only that policy on the Release role. Explicit denies prevent inline-policy mutation, other managed-policy attachments, trust-policy changes, role deletion, and permissions-boundary changes on the Release role.
 
+Bootstrap attaches exactly eight managed policies to the Terraform Apply role: Backend, Network, Edge, Data, Runtime, ObservabilityAudit, Iam, and DeploymentBoundaries. Network/Edge and Data/Runtime are deliberately separate documents so each stays within the AWS IAM managed-policy size limit without broadening resource or condition scopes.
+
 The temporary `ProductionCloudReliabilityPlatform-GitHubDevelopmentDeployment` role remains a bridge only. It is not a normal deployment identity and should be removed after the permanent identities are provisioned and verified.
 
 Permanent GitHub environment ownership:
