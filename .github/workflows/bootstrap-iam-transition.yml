@@ -1,0 +1,129 @@
+name: Bootstrap Deployment IAM Transition
+
+# TEMPORARY WORKFLOW:
+# Use only for the one-time bootstrap transition that provisions the
+# permanent development Terraform Apply, ECR Publisher, and ECS Release roles.
+# Remove this workflow after those identities are provisioned and verified.
+# Normal development deployment must not use this bridge workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Choose bootstrap plan or apply."
+        required: true
+        type: choice
+        default: plan
+        options:
+          - plan
+          - apply
+
+      confirmation:
+        description: "Required only for apply. Must exactly equal APPLY-BOOTSTRAP-IAM."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: bootstrap-deployment-iam-transition
+  cancel-in-progress: false
+
+jobs:
+  bootstrap-deployment-iam-transition:
+    name: Bootstrap deployment IAM transition
+    runs-on: ubuntu-latest
+    environment: development
+
+    defaults:
+      run:
+        working-directory: infrastructure/bootstrap
+
+    env:
+      AWS_REGION: us-east-1
+      BOOTSTRAP_TRANSITION_ROLE_ARN: ${{ vars.AWS_DEVELOPMENT_DEPLOYMENT_ROLE_ARN }}
+
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+
+      TF_STATE_BUCKET: pcrp-terraform-state-us-east-1
+      TF_STATE_KEY: bootstrap/terraform.tfstate
+      TF_VAR_state_bucket_name: pcrp-terraform-state-us-east-1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.0"
+
+      - name: Confirm transition role configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${BOOTSTRAP_TRANSITION_ROLE_ARN}" ]]; then
+            echo "::error::Set AWS_DEVELOPMENT_DEPLOYMENT_ROLE_ARN in the development GitHub environment."
+            exit 1
+          fi
+
+      - name: Validate bootstrap apply confirmation
+        if: ${{ inputs.action == 'apply' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ inputs.confirmation }}" != "APPLY-BOOTSTRAP-IAM" ]]; then
+            echo "::error::Bootstrap apply requires confirmation value APPLY-BOOTSTRAP-IAM."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials through GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.BOOTSTRAP_TRANSITION_ROLE_ARN }}
+          role-session-name: bootstrap-deployment-iam-${{ github.run_id }}
+
+      - name: Initialize exact bootstrap remote backend
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Initializing authoritative bootstrap backend:"
+          echo "  bucket = ${TF_STATE_BUCKET}"
+          echo "  key    = ${TF_STATE_KEY}"
+          echo "  region = ${AWS_REGION}"
+
+          terraform init \
+            -input=false \
+            -reconfigure \
+            -lockfile=readonly \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Validate bootstrap configuration
+        run: terraform validate -no-color
+
+      - name: Create bootstrap transition plan
+        run: |
+          terraform plan \
+            -input=false \
+            -no-color \
+            -out=tfplan
+
+      - name: Apply exact bootstrap transition plan
+        if: ${{ inputs.action == 'apply' }}
+        run: |
+          terraform apply \
+            -input=false \
+            -no-color \
+            tfplan
