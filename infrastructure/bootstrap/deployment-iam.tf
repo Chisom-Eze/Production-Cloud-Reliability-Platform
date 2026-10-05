@@ -127,11 +127,11 @@ locals {
 
   project_eventbridge_rule_arns = [
     "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/${local.development_project_name}-root-activity-critical",
-    "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/${local.development_project_name}-cloudtrail-tampering-critical",
-    "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/${local.development_project_name}-iam-privilege-change-warning",
-    "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/${local.development_project_name}-network-perimeter-change-warning",
+    "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/pcrp-cloudtrail-tampering-critical",
+    "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/pcrp-iam-privilege-change-warning",
+    "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/pcrp-network-perimeter-change-warning",
     "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/${local.development_project_name}-s3-security-change-warning",
-    "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/${local.development_project_name}-console-login-without-mfa-warning"
+    "arn:aws:events:${var.aws_region}:${data.aws_caller_identity.current.account_id}:rule/pcrp-console-login-without-mfa-warning"
   ]
 
   project_sns_topic_arns = [
