@@ -440,6 +440,8 @@ data "aws_iam_policy_document" "github_development_terraform_apply_edge" {
       "acm:ListTagsForCertificate",
       "route53:GetChange",
       "route53:GetHostedZone",
+      "route53:ListHostedZones",
+      "route53:ListHostedZonesByName",
       "route53:ListResourceRecordSets",
       "route53:ListTagsForResource",
       "route53:ListTagsForResources",
@@ -501,6 +503,26 @@ data "aws_iam_policy_document" "github_development_terraform_apply_edge" {
       "acm:RequestCertificate"
     ]
     resources = local.development_acm_certificate_arns
+  }
+
+  statement {
+    sid       = "CreateSharedPublicHostedZone"
+    effect    = "Allow"
+    actions   = ["route53:CreateHostedZone"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "ManageSharedPublicHostedZoneLifecycle"
+    effect = "Allow"
+    actions = [
+      "route53:ChangeTagsForResource",
+      "route53:DeleteHostedZone",
+      "route53:UpdateHostedZoneComment"
+    ]
+    resources = [
+      "arn:aws:route53:::hostedzone/*"
+    ]
   }
 
   statement {

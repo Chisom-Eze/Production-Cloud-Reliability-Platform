@@ -91,6 +91,7 @@ The temporary bridge role still trusts only the exact legacy `development` subje
 ```text
 shared/container-registry/terraform.tfstate
 shared/security-audit/terraform.tfstate
+shared/dns/terraform.tfstate
 environments/development/terraform.tfstate
 ```
 

@@ -13,6 +13,7 @@ locals {
   terraform_plan_state_keys = [
     "shared/container-registry/terraform.tfstate",
     "shared/security-audit/terraform.tfstate",
+    "shared/dns/terraform.tfstate",
     "environments/development/terraform.tfstate"
   ]
 
@@ -334,6 +335,8 @@ data "aws_iam_policy_document" "github_development_terraform_plan_read" {
       "acm:DescribeCertificate",
       "acm:ListTagsForCertificate",
       "route53:GetHostedZone",
+      "route53:ListHostedZones",
+      "route53:ListHostedZonesByName",
       "route53:ListResourceRecordSets",
       "route53:ListTagsForResource",
       "route53:ListTagsForResources"
