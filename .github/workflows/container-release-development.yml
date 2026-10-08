@@ -1,0 +1,454 @@
+name: Development Container Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: container-release-development-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  container-release:
+    name: Build, scan, and publish development images
+    runs-on: ubuntu-latest
+    environment: development-publish
+
+    env:
+      AWS_REGION: us-east-1
+      ECR_PUBLISHER_ROLE_ARN: ${{ vars.AWS_DEVELOPMENT_ECR_PUBLISHER_ROLE_ARN }}
+      ECR_PUBLISHER_ROLE_NAME: pcrp-GitHubDevelopmentEcrPublisher
+
+      API_REPOSITORY: production-cloud-reliability-api
+      WORKER_REPOSITORY: production-cloud-reliability-worker
+      NGINX_REPOSITORY: production-cloud-reliability-nginx
+
+    steps:
+      - name: Enforce main source and immutable SHA
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "::error::Development container publication is allowed only from main."
+            exit 1
+          fi
+
+          if [[ ! "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::GITHUB_SHA must be a full 40-character Git commit SHA."
+            exit 1
+          fi
+
+      - name: Checkout exact release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify checked-out source
+        run: |
+          set -euo pipefail
+
+          checked_out_sha="$(git rev-parse HEAD)"
+
+          if [[ "${checked_out_sha}" != "${GITHUB_SHA}" ]]; then
+            echo "::error::Checked-out source does not match GITHUB_SHA."
+            exit 1
+          fi
+
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@e07451d2e059ed86c2870430ea286b3a9e0bf241
+
+      - name: Prepare security evidence directory
+        run: mkdir -p security-reports
+
+      - name: Build release images once
+        run: |
+          set -euo pipefail
+
+          docker build \
+            -f application/Dockerfile.api \
+            -t "production-cloud-reliability-api:${GITHUB_SHA}" \
+            .
+
+          docker build \
+            -f application/Dockerfile.worker \
+            -t "production-cloud-reliability-worker:${GITHUB_SHA}" \
+            .
+
+          docker build \
+            -f application/Dockerfile.nginx \
+            -t "production-cloud-reliability-nginx:${GITHUB_SHA}" \
+            .
+
+          {
+            echo "## Development Container Release"
+            echo ""
+            echo "- Source SHA: ${GITHUB_SHA}"
+            echo "- Run ID: ${GITHUB_RUN_ID}"
+            echo "- Run attempt: ${GITHUB_RUN_ATTEMPT}"
+            echo "- Images built once:"
+            echo "  - production-cloud-reliability-api:${GITHUB_SHA}"
+            echo "  - production-cloud-reliability-worker:${GITHUB_SHA}"
+            echo "  - production-cloud-reliability-nginx:${GITHUB_SHA}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Record local image identities
+        run: |
+          set -euo pipefail
+
+          {
+            echo "api $(docker image inspect --format '{{.Id}}' "production-cloud-reliability-api:${GITHUB_SHA}")"
+            echo "worker $(docker image inspect --format '{{.Id}}' "production-cloud-reliability-worker:${GITHUB_SHA}")"
+            echo "nginx $(docker image inspect --format '{{.Id}}' "production-cloud-reliability-nginx:${GITHUB_SHA}")"
+          } > security-reports/local-image-identities.txt
+
+      - name: Trivy image visibility scan
+        run: |
+          set -euo pipefail
+
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output security-reports/trivy-api-all.json \
+            --exit-code 0 \
+            "production-cloud-reliability-api:${GITHUB_SHA}"
+
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output security-reports/trivy-worker-all.json \
+            --exit-code 0 \
+            "production-cloud-reliability-worker:${GITHUB_SHA}"
+
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output security-reports/trivy-nginx-all.json \
+            --exit-code 0 \
+            "production-cloud-reliability-nginx:${GITHUB_SHA}"
+
+      - name: Trivy image blocking scan
+        run: |
+          set -euo pipefail
+
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            "production-cloud-reliability-api:${GITHUB_SHA}"
+
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            "production-cloud-reliability-worker:${GITHUB_SHA}"
+
+          trivy image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            "production-cloud-reliability-nginx:${GITHUB_SHA}"
+
+          echo "- Trivy image gate: passed for fixable HIGH/CRITICAL vulnerabilities" \
+            >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload container security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: development-container-security-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: security-reports/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 30
+
+      - name: Confirm ECR publisher role configuration
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${ECR_PUBLISHER_ROLE_ARN}" ]]; then
+            echo "::error::Set AWS_DEVELOPMENT_ECR_PUBLISHER_ROLE_ARN in the development-publish environment."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials through GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.ECR_PUBLISHER_ROLE_ARN }}
+          role-session-name: ecr-publish-${{ github.run_id }}
+
+      - name: Resolve exact ECR repository URIs
+        id: repositories
+        run: |
+          set -euo pipefail
+
+          api_uri="$(
+            aws ecr describe-repositories \
+              --region "${AWS_REGION}" \
+              --repository-names "${API_REPOSITORY}" \
+              --query 'repositories[0].repositoryUri' \
+              --output text
+          )"
+
+          worker_uri="$(
+            aws ecr describe-repositories \
+              --region "${AWS_REGION}" \
+              --repository-names "${WORKER_REPOSITORY}" \
+              --query 'repositories[0].repositoryUri' \
+              --output text
+          )"
+
+          nginx_uri="$(
+            aws ecr describe-repositories \
+              --region "${AWS_REGION}" \
+              --repository-names "${NGINX_REPOSITORY}" \
+              --query 'repositories[0].repositoryUri' \
+              --output text
+          )"
+
+          for uri in "${api_uri}" "${worker_uri}" "${nginx_uri}"; do
+            if [[ -z "${uri}" || "${uri}" == "None" ]]; then
+              echo "::error::Failed to resolve an expected ECR repository URI."
+              exit 1
+            fi
+          done
+
+          registry="${api_uri%%/*}"
+
+          if [[ "${worker_uri%%/*}" != "${registry}" || "${nginx_uri%%/*}" != "${registry}" ]]; then
+            echo "::error::Expected all project repositories to use one ECR registry."
+            exit 1
+          fi
+
+          {
+            echo "API_REPOSITORY_URI=${api_uri}"
+            echo "WORKER_REPOSITORY_URI=${worker_uri}"
+            echo "NGINX_REPOSITORY_URI=${nginx_uri}"
+            echo "ECR_REGISTRY=${registry}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Refuse duplicate immutable Git SHA tags
+        run: |
+          set -euo pipefail
+
+          check_tag_absent() {
+            local repository="$1"
+            local output
+            local status
+
+            set +e
+            output="$(
+              aws ecr describe-images \
+                --region "${AWS_REGION}" \
+                --repository-name "${repository}" \
+                --image-ids "imageTag=${GITHUB_SHA}" \
+                2>&1
+            )"
+            status=$?
+            set -e
+
+            if [[ "${status}" -eq 0 ]]; then
+              echo "::error::Immutable Git SHA tag ${GITHUB_SHA} already exists in ${repository}."
+              exit 1
+            fi
+
+            if grep -q "ImageNotFoundException" <<< "${output}"; then
+              return 0
+            fi
+
+            echo "${output}" >&2
+            echo "::error::Unable to prove Git SHA tag absence in ${repository}."
+            exit "${status}"
+          }
+
+          check_tag_absent "${API_REPOSITORY}"
+          check_tag_absent "${WORKER_REPOSITORY}"
+          check_tag_absent "${NGINX_REPOSITORY}"
+
+      - name: Authenticate Docker to Amazon ECR
+        run: |
+          set -euo pipefail
+
+          aws ecr get-login-password \
+            --region "${AWS_REGION}" \
+            | docker login \
+                --username AWS \
+                --password-stdin "${ECR_REGISTRY}"
+
+      - name: Tag scanned images for immutable publication
+        run: |
+          set -euo pipefail
+
+          docker tag \
+            "production-cloud-reliability-api:${GITHUB_SHA}" \
+            "${API_REPOSITORY_URI}:${GITHUB_SHA}"
+
+          docker tag \
+            "production-cloud-reliability-worker:${GITHUB_SHA}" \
+            "${WORKER_REPOSITORY_URI}:${GITHUB_SHA}"
+
+          docker tag \
+            "production-cloud-reliability-nginx:${GITHUB_SHA}" \
+            "${NGINX_REPOSITORY_URI}:${GITHUB_SHA}"
+
+      - name: Publish immutable images
+        run: |
+          set -euo pipefail
+
+          docker push "${API_REPOSITORY_URI}:${GITHUB_SHA}"
+          docker push "${WORKER_REPOSITORY_URI}:${GITHUB_SHA}"
+          docker push "${NGINX_REPOSITORY_URI}:${GITHUB_SHA}"
+
+      - name: Resolve and validate published digests
+        id: digests
+        run: |
+          set -euo pipefail
+
+          api_digest="$(
+            aws ecr describe-images \
+              --region "${AWS_REGION}" \
+              --repository-name "${API_REPOSITORY}" \
+              --image-ids "imageTag=${GITHUB_SHA}" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text
+          )"
+
+          worker_digest="$(
+            aws ecr describe-images \
+              --region "${AWS_REGION}" \
+              --repository-name "${WORKER_REPOSITORY}" \
+              --image-ids "imageTag=${GITHUB_SHA}" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text
+          )"
+
+          nginx_digest="$(
+            aws ecr describe-images \
+              --region "${AWS_REGION}" \
+              --repository-name "${NGINX_REPOSITORY}" \
+              --image-ids "imageTag=${GITHUB_SHA}" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text
+          )"
+
+          for digest in "${api_digest}" "${worker_digest}" "${nginx_digest}"; do
+            if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::Invalid ECR image digest: ${digest}"
+              exit 1
+            fi
+          done
+
+          {
+            echo "API_DIGEST=${api_digest}"
+            echo "WORKER_DIGEST=${worker_digest}"
+            echo "NGINX_DIGEST=${nginx_digest}"
+          } >> "${GITHUB_ENV}"
+
+          {
+            echo "api_digest=${api_digest}"
+            echo "worker_digest=${worker_digest}"
+            echo "nginx_digest=${nginx_digest}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Create and validate immutable release manifest
+        id: manifest
+        run: |
+          set -euo pipefail
+
+          artifact_name="development-release-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+
+          jq -n \
+            --arg source_git_sha "${GITHUB_SHA}" \
+            --arg build_run_id "${GITHUB_RUN_ID}" \
+            --arg build_run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg aws_region "${AWS_REGION}" \
+            --arg api_repository "${API_REPOSITORY_URI}" \
+            --arg api_tag "${GITHUB_SHA}" \
+            --arg api_digest "${API_DIGEST}" \
+            --arg worker_repository "${WORKER_REPOSITORY_URI}" \
+            --arg worker_tag "${GITHUB_SHA}" \
+            --arg worker_digest "${WORKER_DIGEST}" \
+            --arg nginx_repository "${NGINX_REPOSITORY_URI}" \
+            --arg nginx_tag "${GITHUB_SHA}" \
+            --arg nginx_digest "${NGINX_DIGEST}" \
+            '{
+              schema_version: 1,
+              environment: "development",
+              source_git_sha: $source_git_sha,
+              build_run_id: $build_run_id,
+              build_run_attempt: $build_run_attempt,
+              aws_region: $aws_region,
+              images: {
+                api: {
+                  repository: $api_repository,
+                  tag: $api_tag,
+                  digest: $api_digest,
+                  image: ($api_repository + "@" + $api_digest)
+                },
+                worker: {
+                  repository: $worker_repository,
+                  tag: $worker_tag,
+                  digest: $worker_digest,
+                  image: ($worker_repository + "@" + $worker_digest)
+                },
+                nginx: {
+                  repository: $nginx_repository,
+                  tag: $nginx_tag,
+                  digest: $nginx_digest,
+                  image: ($nginx_repository + "@" + $nginx_digest)
+                }
+              }
+            }' > release-manifest.json
+
+          jq -e \
+            --arg source_git_sha "${GITHUB_SHA}" \
+            --arg build_run_id "${GITHUB_RUN_ID}" \
+            --arg build_run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            --arg aws_region "${AWS_REGION}" \
+            '
+              .schema_version == 1
+              and .environment == "development"
+              and .source_git_sha == $source_git_sha
+              and .build_run_id == $build_run_id
+              and .build_run_attempt == $build_run_attempt
+              and .aws_region == $aws_region
+              and (.images | keys | sort) == ["api", "nginx", "worker"]
+              and all(
+                .images[];
+                (.tag == $source_git_sha)
+                and (.digest | test("^sha256:[0-9a-f]{64}$"))
+                and (.image == (.repository + "@" + .digest))
+              )
+            ' release-manifest.json > /dev/null
+
+          echo "artifact_name=${artifact_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload immutable release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.manifest.outputs.artifact_name }}
+          path: |
+            release-manifest.json
+            security-reports/
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 30
+
+      - name: Write release summary
+        env:
+          RELEASE_ARTIFACT_NAME: ${{ steps.manifest.outputs.artifact_name }}
+        run: |
+          {
+            echo ""
+            echo "## Publication"
+            echo ""
+            echo "- Publisher identity: ${ECR_PUBLISHER_ROLE_NAME}"
+            echo "- API: ${API_REPOSITORY_URI}@${API_DIGEST}"
+            echo "- Worker: ${WORKER_REPOSITORY_URI}@${WORKER_DIGEST}"
+            echo "- Nginx: ${NGINX_REPOSITORY_URI}@${NGINX_DIGEST}"
+            echo "- Release artifact: ${RELEASE_ARTIFACT_NAME}"
+          } >> "${GITHUB_STEP_SUMMARY}"
