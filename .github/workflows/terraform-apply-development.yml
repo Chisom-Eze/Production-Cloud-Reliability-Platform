@@ -17,6 +17,7 @@ on:
         type: choice
         options:
           - shared/container-registry
+          - shared/dns
           - shared/security-audit
       confirmation:
         description: "Must exactly equal APPLY-DEVELOPMENT-TERRAFORM."
@@ -81,6 +82,11 @@ jobs:
               tf_root="infrastructure/shared/container-registry"
               state_key="shared/container-registry/terraform.tfstate"
               root_slug="container-registry"
+              ;;
+            shared/dns)
+              tf_root="infrastructure/shared/dns"
+              state_key="shared/dns/terraform.tfstate"
+              root_slug="dns"
               ;;
             shared/security-audit)
               tf_root="infrastructure/shared/security-audit"

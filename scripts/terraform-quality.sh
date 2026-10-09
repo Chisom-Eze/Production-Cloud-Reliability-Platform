@@ -4,6 +4,7 @@ set -euo pipefail
 ROOTS=(
   "infrastructure/bootstrap"
   "infrastructure/shared/container-registry"
+  "infrastructure/shared/dns"
   "infrastructure/shared/security-audit"
   "infrastructure/environments/development"
 )
