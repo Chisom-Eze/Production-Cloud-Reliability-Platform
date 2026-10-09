@@ -47,3 +47,5 @@ jobs:
 
       - name: Run Terraform static quality gates
         run: bash scripts/terraform-quality.sh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
