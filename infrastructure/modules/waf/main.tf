@@ -102,7 +102,6 @@ resource "aws_wafv2_web_acl" "this" {
       managed_rule_group_statement {
         name        = "AWSManagedRulesAmazonIpReputationList"
         vendor_name = "AWS"
-        version     = var.ip_reputation_rule_set_version
       }
     }
 

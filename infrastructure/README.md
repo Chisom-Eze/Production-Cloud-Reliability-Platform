@@ -21,6 +21,7 @@ infrastructure/
 |   `-- vpc/
 |-- shared/
 |   |-- container-registry/
+|   |-- dns/
 |   `-- security-audit/
 `-- environments/
     |-- development/
@@ -40,6 +41,7 @@ Modules do not contain backend blocks, backend configuration, account IDs, or de
 | --- | --- | --- |
 | `bootstrap` | Foundational state bucket, S3 backend controls, GitHub OIDC provider, temporary GitHub development deployment bridge role, and permanent development Plan/Apply/Publisher/Release roles | Existing key, unchanged |
 | `shared/container-registry` | Shared ECR repositories and GitHub ECR publishing policy attachment to the permanent Publisher role | `shared/container-registry/terraform.tfstate` |
+| `shared/dns` | Retained authoritative public Route53 hosted zone for `chisomeze.online`; environment-specific records are separately owned | `shared/dns/terraform.tfstate` |
 | `shared/security-audit` | Account-level CloudTrail audit bucket, multi-Region trail, targeted security EventBridge rules, and security SNS topic | `shared/security-audit/terraform.tfstate` |
 | `environments/development` | Development runtime infrastructure: VPC, security groups, private PostgreSQL RDS foundation, SQS job queue, S3 artifact storage, ECS workload IAM, public ALB edge, and WAF protection | `environments/development/terraform.tfstate` |
 | `environments/staging` | Future staging runtime infrastructure | `environments/staging/terraform.tfstate` |
@@ -115,6 +117,37 @@ commit
 ```
 
 The same image digest should move through environments. Rollback means redeploying a previous known-good digest, not rebuilding or relying on a mutable tag.
+
+## Shared Authoritative DNS
+
+Stage implemented and ownership/root:
+
+- [`shared/dns`](shared/dns/README.md) owns one authoritative public Route53 hosted zone for `chisomeze.online` in independent state at `shared/dns/terraform.tfstate`.
+- The permanent manual Plan/Apply workflows accept this root; the canonical static-quality script validates it alongside the existing roots.
+
+Security and production-hardening decisions:
+
+- The domain input is restricted to `chisomeze.online`, and standard PCRP shared tags are applied.
+- `prevent_destroy = true` deliberately protects the hosted zone while its resource declaration remains present.
+- The zone and its remote state survive development-environment teardown. Bootstrap IAM, OIDC subjects, and exact Plan-attempt/artifact verification remain unchanged.
+
+Cost decisions and intentional trade-offs:
+
+- The shared hosted zone remains chargeable while development runtime infrastructure is absent; retaining authoritative DNS is intentional.
+- Registrar delegation is a manual Namecheap Custom DNS change after the operator obtains all four Route53 nameservers and verifies delegation.
+
+Deferred components and why:
+
+- Application records, ACM validation records, ALB aliases, and other environment-specific records are excluded because their ownership belongs to the environment roots.
+- This source change does not create DNS records or alter Namecheap. The new root's provider lockfile must be generated and committed before its first permanent workflow run because backend initialization preserves `-lockfile=readonly`.
+
+## Development Deployment Readiness Correction
+
+The permanent manual Plan/Apply workflows now allow `environments/development`, mapped to `infrastructure/environments/development`, state key `environments/development/terraform.tfstate`, and artifact slug `development`. Existing OIDC identities, environment protection, Plan run-attempt/source/artifact verification, and exact-binary-plan Apply remain unchanged. The static-quality script already covers this root.
+
+The WAF correction belongs to the development root and reusable WAF module. It retains three reviewed version pins and models Amazon IP Reputation without a version; rule priorities, actions, logging, and metrics are preserved. There is no capacity or paid-service change. The existing cost and safety choice remains `ecs_services_enabled = false` for foundation bootstrap, with initial services and autoscaling deferred until migration succeeds.
+
+The Plan workflow delivers the 15 reviewed non-secret inputs from explicit `development-plan` GitHub Environment Variable mappings only for development. Validation precedes AWS authentication and planning; shared roots skip it. The initial FQDN, frozen release image digests, WAF pins, and operational values are recorded in [the development input contract](../docs/operations/development-deployment-input-contract.md). Operators must populate the variables, supplying the actual hosted-zone ID and resolved ADOT URI, and prepare a reviewed provider lockfile. The workflow fixes `TF_VAR_ecs_services_enabled=false` in code and exposes no GitHub variable for it. Apply still consumes only the verified binary plan.
 
 ## Adding Future Modules
 
@@ -672,10 +705,10 @@ Managed-rule blocking behavior:
 
 Managed-rule versioning contract:
 
-- The module accepts explicit version inputs for each managed rule group.
-- Development exposes those versions as required variables.
-- The operator must query AWS for currently supported versions before the authenticated deployment plan.
-- The code does not invent AWS managed rule version strings.
+- The Common, Known Bad Inputs, and SQLi managed groups accept explicit static version inputs, exposed as required development variables.
+- The operator-discovered recommended default pins are Common `Version_1.23`, Known Bad Inputs `Version_1.26`, and SQLi `Version_1.3`; revisit them through review before expiration.
+- Amazon IP Reputation is intentionally unversioned. Its statement has no `version` attribute and requires no version input.
+- These pins are recorded in deployment documentation and supplied through the explicit `development-plan` Environment Variable mapping. Terraform retains final validation; the workflow does not add another supported-version allowlist.
 
 Rule priority order:
 

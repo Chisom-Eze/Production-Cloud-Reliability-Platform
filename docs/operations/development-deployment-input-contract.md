@@ -4,7 +4,7 @@
 
 Authenticated deployment must not turn required Terraform values into an untracked collection of operator choices. Every input needs a named source of truth, an owner, a delivery mechanism, and a lifecycle so a reviewed plan can be reproduced and explained.
 
-This contract separates stable development configuration, values discovered from AWS and then pinned, immutable release outputs, external dependency pins, Terraform-generated values, and AWS-managed secrets. It also freezes the first-deployment order and records the ECS migration blocker that prevents a full development apply today.
+This contract separates stable development configuration, values discovered from AWS and then pinned, immutable release outputs, external dependency pins, Terraform-generated values, and AWS-managed secrets. GitHub Environment Variables in `development-plan` deliver the 15 reviewed non-secret inputs to the permanent Plan workflow. It also records the first-deployment order, the implemented ECS bootstrap gate, and the remaining operator-supplied values.
 
 Credentials are not ordinary deployment inputs. GitHub Actions obtains short-lived AWS credentials through GitHub OIDC and an environment-scoped IAM role. Database credentials remain AWS-managed and are injected into ECS from Secrets Manager. Neither credential path belongs in Terraform variable files, GitHub configuration values, release manifests, logs, or artifacts.
 
@@ -13,46 +13,81 @@ Credentials are not ordinary deployment inputs. GitHub Actions obtains short-liv
 | Source-of-truth class | Ownership and intended use |
 | --- | --- |
 | Bootstrap Terraform output | Control-plane values created by the bootstrap root, such as the Terraform state bucket and GitHub OIDC role ARNs. A workflow may consume an explicitly exported output or corresponding protected GitHub Environment configuration; bootstrap state is not read casually by application deployment. |
-| Repository-controlled development configuration | Stable, non-secret development policy reviewed in Git, such as the application FQDN, scaling target, and alarm thresholds. Changes follow normal code review and are not improvised during a release. |
-| GitHub Environment non-secret configuration | Environment-scoped workflow configuration, such as the ARN of the OIDC role a job is allowed to assume. It is not a store for application image digests, passwords, or ad-hoc Terraform values. |
+| Reviewed development configuration | The initial application FQDN, scaling target, alarm thresholds, and WAF pins are recorded in this contract. Operators populate the matching `development-plan` Environment Variables and review changes before planning. |
+| GitHub Environment non-secret configuration | `development-plan` Environment Variables are the input source consumed by the Plan job. The explicit mapping below includes reviewed development configuration and frozen immutable image references. These variables never contain credentials or passwords. The OIDC role ARN remains separate control-plane configuration. |
 | Authenticated AWS capability lookup followed by explicit pinning | Values that must be discovered from the target AWS account or service, then recorded explicitly for review and repeatability. Discovery does not authorize automatically following `latest` or whichever value AWS returns during deployment. |
-| Container release pipeline output | Immutable image repositories and digests produced by building, scanning, and publishing one release. These values flow through the release manifest and are not manually maintained as permanent GitHub variables. |
+| Container release pipeline output | Frozen image repositories and digests identify the approved API, worker, and Nginx release. Operators copy those approved references into the matching Environment Variables; selecting another release requires updating those references and reviewing a new plan. |
 | External dependency pin | A reviewed immutable reference for a third-party runtime dependency. The ADOT collector belongs here and must use a digest, not a mutable tag. |
 | Terraform runtime/module output | Values created within the Terraform graph and passed directly between roots/modules or resources, such as subnet IDs, target group ARNs, queue URLs, database endpoints, and the RDS-managed secret ARN. They are not duplicated as operator inputs. |
 | AWS-managed secret | Secret material generated and stored by AWS, retrieved at runtime only by an authorized workload. The RDS master password remains in Secrets Manager and reaches ECS through secret injection. |
 
 ## 3. Complete Development Input Inventory
 
-`infrastructure/environments/development/variables.tf` contains 16 variables without defaults. All are required by the development root. A variable description that contains an example is not a resolved value.
+`infrastructure/environments/development/variables.tf` contains exactly these 15 required variables without defaults. Populate all 15 as **Variables**, not Secrets, in the GitHub Environment **development-plan**. None is a `workflow_dispatch` input. The table records initial reviewed values; it does not claim that GitHub configuration has already been populated.
 
-| Terraform input | Required? | Default? | Source of truth | Delivery mechanism | Secret? | Lifecycle | Currently resolved? | Required before |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `application_domain_name` | Yes | None | Repository-controlled development configuration | Reviewed, non-secret development application input supplied to Terraform | No | Stable environment configuration; change only with deliberate DNS/application review | No; `app.chisomeze.online` appears only as an example | Authenticated development plan |
-| `route53_zone_id` | Yes | None | Authenticated AWS capability lookup followed by explicit pinning | Discover in the target account, verify domain ownership/scope, then record as reviewed development configuration | No | Stable until the hosted zone is deliberately replaced | No | Authenticated development plan |
-| `waf_common_rule_set_version` | Yes | None | Authenticated AWS capability lookup followed by explicit pinning | Query AWS for supported `AWSManagedRulesCommonRuleSet` versions, review, then pin in development configuration | No | Upgrade through an explicit reviewed change; never follow newest automatically | No | Authenticated development plan |
-| `waf_known_bad_inputs_rule_set_version` | Yes | None | Authenticated AWS capability lookup followed by explicit pinning | Query AWS for supported `AWSManagedRulesKnownBadInputsRuleSet` versions, review, then pin in development configuration | No | Upgrade through an explicit reviewed change; never follow newest automatically | No | Authenticated development plan |
-| `waf_sqli_rule_set_version` | Yes | None | Authenticated AWS capability lookup followed by explicit pinning | Query AWS for supported `AWSManagedRulesSQLiRuleSet` versions, review, then pin in development configuration | No | Upgrade through an explicit reviewed change; never follow newest automatically | No | Authenticated development plan |
-| `waf_ip_reputation_rule_set_version` | Yes | None | Authenticated AWS capability lookup followed by explicit pinning | Query AWS for supported `AWSManagedRulesAmazonIpReputationList` versions, review, then pin in development configuration | No | Upgrade through an explicit reviewed change; never follow newest automatically | No | Authenticated development plan |
-| `api_image_uri` | Yes | None | Container release pipeline output | Release manifest supplies `repository@sha256:digest` to the deployment workflow as an ephemeral Terraform input | No | Unique per approved release; immutable after publication | No | Authenticated development plan and apply |
-| `nginx_image_uri` | Yes | None | Container release pipeline output | Release manifest supplies `repository@sha256:digest` to the deployment workflow as an ephemeral Terraform input | No | Unique per approved release; immutable after publication | No | Authenticated development plan and apply |
-| `worker_image_uri` | Yes | None | Container release pipeline output | Release manifest supplies `repository@sha256:digest` to the deployment workflow as an ephemeral Terraform input | No | Unique per approved release; immutable after publication | No | Authenticated development plan and apply |
-| `adot_collector_image_uri` | Yes | None | External dependency pin | A reviewed dependency record supplies an immutable `repository@sha256:digest` reference as a development application input | No | Changed only after dependency review, compatibility validation, and security review | No | Authenticated development plan |
-| `worker_backlog_per_task_target` | Yes | None | Repository-controlled development configuration | Reviewed, non-secret development application input supplied to Terraform | No | Tune from measured acceptable queue wait time and processing time; changes are reviewed | No | Authenticated development plan |
-| `api_5xx_error_rate_alarm_percent` | Yes | None | Repository-controlled development configuration | Reviewed, non-secret development application input supplied to Terraform | No | Provisional first value, then tune from observed service behavior through review | No | Authenticated development plan |
-| `api_p95_latency_alarm_seconds` | Yes | None | Repository-controlled development configuration | Reviewed, non-secret development application input supplied to Terraform | No | Provisional first value, then tune from observed service behavior through review | No | Authenticated development plan |
-| `queue_oldest_message_age_alarm_seconds` | Yes | None | Repository-controlled development configuration | Reviewed, non-secret development application input supplied to Terraform | No | Provisional first value, then tune against queue SLO and processing behavior through review | No | Authenticated development plan |
-| `rds_cpu_alarm_percent` | Yes | None | Repository-controlled development configuration | Reviewed, non-secret development application input supplied to Terraform | No | Provisional first value, then tune from observed database behavior through review | No | Authenticated development plan |
-| `rds_free_storage_alarm_bytes` | Yes | None | Repository-controlled development configuration | Reviewed, non-secret development application input supplied to Terraform | No | Provisional first value, then tune against storage growth and response time through review | No | Authenticated development plan |
+| Terraform variable | Terraform environment variable | GitHub Environment Variable | Initial reviewed value | Source / ownership | Changes per release? |
+| --- | --- | --- | --- | --- | --- |
+| `application_domain_name` | `TF_VAR_application_domain_name` | `APPLICATION_DOMAIN_NAME` | `app.chisomeze.online` | Reviewed development DNS policy / operator | No; deliberate DNS change only |
+| `route53_zone_id` | `TF_VAR_route53_zone_id` | `ROUTE53_ZONE_ID` | Operator must populate from the existing `shared/dns` output `hosted_zone_id` | Shared authoritative DNS root / operator verifies zone ownership and delegation | No; only if the zone changes |
+| `api_image_uri` | `TF_VAR_api_image_uri` | `API_IMAGE_URI` | `964117916184.dkr.ecr.us-east-1.amazonaws.com/production-cloud-reliability-api@sha256:0eb44900e206ddfc3d59709d353e7142ec8c2ff63b4a42ad64be8799b26122c3` | Operator-supplied frozen release image / release owner | Yes; use the approved release digest |
+| `worker_image_uri` | `TF_VAR_worker_image_uri` | `WORKER_IMAGE_URI` | `964117916184.dkr.ecr.us-east-1.amazonaws.com/production-cloud-reliability-worker@sha256:bfab48e9df940193d47391e5c12077d8745b08b72a03b598a4465009dfd7231c` | Operator-supplied frozen release image / release owner | Yes; use the approved release digest |
+| `nginx_image_uri` | `TF_VAR_nginx_image_uri` | `NGINX_IMAGE_URI` | `964117916184.dkr.ecr.us-east-1.amazonaws.com/production-cloud-reliability-nginx@sha256:848b60479af8a4e096bc7dba50f0591c5fe336cae0b1309ab52c92097d6f5ed3` | Operator-supplied frozen release image / release owner | Yes; use the approved release digest |
+| `adot_collector_image_uri` | `TF_VAR_adot_collector_image_uri` | `ADOT_COLLECTOR_IMAGE_URI` | Operator must populate the full `public.ecr.aws/aws-observability/aws-otel-collector@sha256:<resolved-digest>` URI using the already validated immutable digest | Reviewed external dependency / operator; exact digest not supplied here | No; only after dependency review |
+| `waf_common_rule_set_version` | `TF_VAR_waf_common_rule_set_version` | `WAF_COMMON_RULE_SET_VERSION` | `Version_1.23` | Operator-discovered AWS recommended default / security owner | No; review before expiration |
+| `waf_known_bad_inputs_rule_set_version` | `TF_VAR_waf_known_bad_inputs_rule_set_version` | `WAF_KNOWN_BAD_INPUTS_RULE_SET_VERSION` | `Version_1.26` | Operator-discovered AWS recommended default / security owner | No; review before expiration |
+| `waf_sqli_rule_set_version` | `TF_VAR_waf_sqli_rule_set_version` | `WAF_SQLI_RULE_SET_VERSION` | `Version_1.3` | Operator-discovered AWS recommended default / security owner | No; review before expiration |
+| `worker_backlog_per_task_target` | `TF_VAR_worker_backlog_per_task_target` | `WORKER_BACKLOG_PER_TASK_TARGET` | `10` | Initial development capacity policy / operator | No; tune through review |
+| `api_5xx_error_rate_alarm_percent` | `TF_VAR_api_5xx_error_rate_alarm_percent` | `API_5XX_ERROR_RATE_ALARM_PERCENT` | `5` (percent) | Initial API error alarm policy / operator | No; tune through review |
+| `api_p95_latency_alarm_seconds` | `TF_VAR_api_p95_latency_alarm_seconds` | `API_P95_LATENCY_ALARM_SECONDS` | `2` (seconds) | Initial API latency alarm policy / operator | No; tune through review |
+| `queue_oldest_message_age_alarm_seconds` | `TF_VAR_queue_oldest_message_age_alarm_seconds` | `QUEUE_OLDEST_MESSAGE_AGE_ALARM_SECONDS` | `120` (seconds) | Initial SQS age alarm policy / operator | No; tune through review |
+| `rds_cpu_alarm_percent` | `TF_VAR_rds_cpu_alarm_percent` | `RDS_CPU_ALARM_PERCENT` | `80` (percent) | Initial RDS CPU alarm policy / operator | No; tune through review |
+| `rds_free_storage_alarm_bytes` | `TF_VAR_rds_free_storage_alarm_bytes` | `RDS_FREE_STORAGE_ALARM_BYTES` | `5368709120` (bytes; 5 GiB) | Initial RDS storage alarm policy / operator | No; tune through review |
+
+Enter numeric values as their plain numbers, without unit labels. `ecs_services_enabled` is **not** part of this Environment Variable contract. Its Terraform default remains `false`, and the development Plan workflow writes `TF_VAR_ecs_services_enabled=false` as a fixed code-controlled value. There is no GitHub variable mapping or dispatch input for that flag. Enabling initial services requires a separate reviewed workflow/configuration change after successful migration evidence.
 
 ### Stable Development Configuration
 
-The application FQDN, worker backlog-per-task target, and alarm thresholds are environment policy. They must be deterministic and reviewable. They should be supplied from a version-controlled, non-secret development configuration contract rather than typed ad hoc into a workflow run. The exact file/serialization mechanism is a later implementation choice; this document does not create one or assign values.
-
-Ownership of `chisomeze.online` does not by itself resolve `application_domain_name`. The exact application FQDN still requires an explicit decision.
+The application FQDN, worker backlog-per-task target, and alarm thresholds are environment policy. Their initial reviewed values are recorded above and supplied through the explicit `development-plan` Environment Variable mapping. Review and document changes before planning; they are not ad-hoc dispatch inputs. The chosen application FQDN is `app.chisomeze.online`.
 
 ### AWS-Derived Configuration
 
-The Route 53 hosted-zone ID and all four AWS WAF managed-rule versions require authenticated discovery in `us-east-1` or the applicable global service scope. Discovery is followed by review and an explicit pin. A deployment must not ask AWS for the newest WAF version and silently adopt it during plan or apply.
+The Route 53 hosted-zone ID and three versioned AWS WAF managed groups require authenticated discovery in `us-east-1` or the applicable global service scope. The hosted zone is owned by `shared/dns`; use its verified `hosted_zone_id` output after deployment and delegation. Discovery is followed by review and an explicit pin. A deployment must not ask AWS for the newest WAF version and silently adopt it during plan or apply.
+
+The operator's authoritative AWS discovery supplied these current-default pins:
+
+```hcl
+waf_common_rule_set_version           = "Version_1.23"
+waf_known_bad_inputs_rule_set_version = "Version_1.26"
+waf_sqli_rule_set_version             = "Version_1.3"
+```
+
+SQLi intentionally uses `Version_1.3`, not the numerically higher `Version_2.5`. These reviewed pins must be revisited before expiration. `AWSManagedRulesAmazonIpReputationList` is not versioned; its Terraform statement intentionally omits `version`, and neither the module nor the development root accepts a version input for it.
+
+### GitHub Environment Input Delivery
+
+`.github/workflows/terraform-plan-development.yml` maps the 15 Environment Variables through explicit step-level `TF_VAR_*` entries only when the selected root is `environments/development`. Shared roots skip this step and do not require any of these development variables. Values are read through `vars`, not `secrets`, and are not interpolated into shell code or evaluated dynamically.
+
+Before AWS authentication or Terraform planning, the step checks every value for presence, reports missing GitHub variable names without printing values or dumping the environment, and checks all four image references against the immutable digest form already required by Terraform. Multiline values are rejected before writing the validated inputs to `GITHUB_ENV`, so they cannot inject another environment assignment. WAF versions must be non-empty; supported-version decisions and the reviewed pins remain in their documented ownership rather than a second workflow allowlist. Terraform's existing variable validations remain the final value contract.
+
+The step preserves validated `TF_VAR_*` values for the later Plan process and fixes `TF_VAR_ecs_services_enabled=false`. Updating GitHub values after a plan is produced cannot alter that saved binary plan. Apply receives no new `TF_VAR_*` mapping, never re-plans, and applies only the downloaded artifact after the existing run-attempt, SHA, metadata, and digest verification.
+
+The operator must populate all 15 variables in `development-plan`; specifically, `ROUTE53_ZONE_ID` and the exact digest in `ADOT_COLLECTOR_IMAGE_URI` remain operator-supplied. Source implementation is not evidence of a completed GitHub configuration or successful authenticated run.
+
+### Provider Lockfile Preparation
+
+The development root requires Terraform `>= 1.10.0` and only `hashicorp/aws ~> 6.0`, matching the existing shared-root convention and its development modules. No shared-root or development `.terraform.lock.hcl` is present in this checkout, so an existing file cannot be certified for exact reuse here. A shared lockfile with a compatible AWS selection and the required platform checksums could be reusable, but generate or verify the lock in the development root rather than assuming that matching constraints prove a particular file is suitable.
+
+Recommended operator commands in WSL, not executed by this source change:
+
+```bash
+cd /home/chisom/projects/prod-sre/infrastructure/environments/development
+terraform init -backend=false -input=false
+terraform providers lock -platform=linux_amd64 -platform=windows_amd64
+terraform init -backend=false -input=false -lockfile=readonly
+terraform validate
+```
+
+Review the selected provider and checksums, then commit the development `.terraform.lock.hcl`. These preparation commands do not initialize the remote backend or create a plan. The permanent workflows retain `-lockfile=readonly`; this patch neither generates nor edits any lockfile.
 
 ### Release-Produced Configuration
 
@@ -67,11 +102,13 @@ build once
   -> deploy repository@sha256:digest
 ```
 
-The release process owns these three image values. They must not become manually maintained GitHub repository or Environment variables. Terraform receives them from the selected immutable release manifest at workflow runtime.
+The release process owns these three image identities. For this reviewed first-deployment handoff, operators populate `API_IMAGE_URI`, `WORKER_IMAGE_URI`, and `NGINX_IMAGE_URI` in `development-plan` with the exact frozen references above. Those references change only when another approved release is selected. Future automated manifest delivery can replace that handoff through a separate reviewed change; this workflow does not claim to fetch or verify a release manifest itself.
 
 ### External Runtime Dependency
 
 The ADOT collector is not built by this repository's application image release. Its image must be selected through explicit dependency review and pinned by digest. A mutable `latest` or version-only tag is insufficient for deployment reproducibility.
+
+The operator has resolved and validated the collector URI, but its exact digest was not supplied for this patch. Populate `ADOT_COLLECTOR_IMAGE_URI` in `development-plan` with the full `public.ecr.aws/aws-observability/aws-otel-collector@sha256:<64-hex>` URI. The explicit mapping supplies `TF_VAR_adot_collector_image_uri` to Terraform; no digest is fabricated here. Backend configuration is not the place for this value, and Apply continues using the verified binary plan.
 
 ### Secrets
 
@@ -147,13 +184,13 @@ The first deployment must follow this dependency order. A failed hard gate stops
 
 **Hard gate D:** Any failed build or security gate stops publication/deployment. Deployment uses the captured digests, never `latest`, mutable tags, or rebuilt substitutes.
 
-9. Resolve and pin development configuration: exact FQDN, Route 53 zone ID, reviewed WAF versions, ADOT digest, worker target, and alarm thresholds.
+9. Verify shared DNS deployment and Namecheap delegation, then resolve development configuration: exact FQDN, hosted-zone ID, recorded WAF pins and their delivery, operator-validated ADOT digest, worker target, and alarm thresholds.
 10. Run an authenticated Terraform plan for `infrastructure/environments/development` with the selected release manifest and reviewed development configuration.
 11. Review and approve the complete plan and its identity, backend key, input provenance, and expected changes.
 
 **Hard gate E:** Missing, fabricated, mutable, or unreviewed inputs stop planning/approval. A successful plan is not authorization to bypass the ECS sequencing blocker.
 
-12. Apply the development foundation only after ECS rollout sequencing has been corrected so service updates cannot precede migration success.
+12. Apply the development foundation with `ecs_services_enabled = false` so prerequisites and task definitions exist without API/worker services or autoscaling.
 13. Run the one-off migration task using the approved task-definition revision.
 14. Wait for the migration task to stop.
 15. Verify that the migration container exited successfully and preserve its logs/task evidence.
@@ -161,7 +198,7 @@ The first deployment must follow this dependency order. A failed hard gate stops
 
 **Hard gate F:** A verified zero/success migration result is mandatory before service mutation. Timeout, task-launch failure, missing evidence, or non-zero exit is failure.
 
-17. Only after migration success, update the API and worker services to the approved task-definition revision.
+17. Only after migration success, review a separate change to the workflow's fixed bootstrap gate before creating initial services and autoscaling with `ecs_services_enabled = true`. Later releases update the approved API/worker task-definition revisions through release orchestration after migration success.
 18. Wait for both ECS services to reach stability and verify expected task counts and target health.
 
 **Hard gate G:** Unstable services, failed tasks, unhealthy targets, or unexpected revisions stop acceptance and trigger diagnosis/rollback according to the future release runbook.
@@ -173,31 +210,23 @@ The first deployment must follow this dependency order. A failed hard gate stops
 
 There is no local `terraform apply` path. Deployment runs GitHub Actions -> GitHub OIDC -> AWS IAM -> Terraform/AWS.
 
-## 7. ECS Release Blocker
+## 7. ECS Bootstrap Gate And Release Boundary
 
-The current ECS implementation directly connects Terraform-owned services to Terraform-owned task definitions:
+The development input `ecs_services_enabled` defaults to `false` and flows to the ECS module's `services_enabled` input. Both API/worker service resources and the development autoscaling module have conditional counts, so they are absent during foundation bootstrap. The cluster, log groups, and API/worker/migration task definitions can be created without starting application services.
 
-```text
-aws_ecs_service.api.task_definition
-  = aws_ecs_task_definition.api.arn
-
-aws_ecs_service.worker.task_definition
-  = aws_ecs_task_definition.worker.arn
-```
-
-Consequently, one Terraform apply can register new task definitions and update the API/worker services as part of the same graph. It cannot enforce this required operational sequence:
+After a successful migration is evidenced, a separate reviewed change to the workflow's fixed bootstrap gate may permit a plan with `ecs_services_enabled = true` to create the initial services. Changing a GitHub Environment Variable cannot enable the gate. The flag does not invoke the migration or validate its exit code; the operator and release orchestration must enforce this sequence:
 
 ```text
 register task definitions
   -> run migration
   -> wait
   -> verify successful exit
-  -> update services
+   -> enable initial services or update existing services
 ```
 
-The first full development apply must not proceed while this ordering cannot be enforced. In particular, plan approval does not waive the blocker.
+Service creation or updates must stop if migration evidence is missing or unsuccessful. Plan approval does not waive that gate.
 
-The intended ownership boundary for later design is:
+The existing ownership boundary is:
 
 **Terraform owns:**
 
@@ -218,7 +247,7 @@ The intended ownership boundary for later design is:
 - API and worker service update only after migration success;
 - service-stability verification and release evidence.
 
-The exact Terraform lifecycle mechanism, service/task-definition ownership split, state implications, and release command/API mechanism remain an implementation decision. They must be designed and reviewed in a later task rather than guessed here.
+The ECS services already ignore drift only for `task_definition` and `desired_count`: Terraform owns initial service creation and infrastructure, release orchestration owns later approved live revisions, and Application Auto Scaling owns runtime desired count. The bootstrap safety gate is implemented in source, but migration execution, release sequencing, and successful runtime evidence are not proven by this readiness patch.
 
 ## 8. Deployment Acceptance Contract
 
@@ -292,8 +321,8 @@ M-B3 is closed only when all of the following statements are true:
 - The immutable release-manifest contract is documented without pretending it has been implemented.
 - Backend coordinates and Terraform application inputs are explicitly separated.
 - The 20-step first-development deployment sequence and its hard stop gates are frozen and reviewable.
-- The current migration-before-service-rollout blocker and the intended Terraform/release ownership boundary are documented.
+- The implemented bootstrap safety gate, migration-before-service requirement, and existing Terraform/release ownership boundary are documented.
 - The synchronous and asynchronous deployment acceptance evidence is defined, and Terraform success alone is explicitly insufficient.
 - Every currently unresolved value remains visibly unresolved; no deployment value has been fabricated.
 
-Closing this documentation stage does not authorize the first full development apply. That apply remains blocked until the ECS release sequencing mechanism is designed, implemented, statically validated, and proven capable of stopping before API/worker service updates when migration fails.
+Closing this documentation stage does not authorize an AWS deployment. Input delivery is implemented in source; the operator must populate the documented `development-plan` variables and prepare the provider lockfile before the first authenticated development plan. Initial service creation and later service updates require successful migration evidence first; the current workflow fixes the bootstrap flag as false until a separate reviewed change permits service creation.
