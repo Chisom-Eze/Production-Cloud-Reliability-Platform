@@ -12,13 +12,14 @@ on:
         required: true
         type: string
       root:
-        description: "Shared Terraform root represented by the approved plan."
+        description: "Terraform root represented by the approved plan."
         required: true
         type: choice
         options:
           - shared/container-registry
           - shared/dns
           - shared/security-audit
+          - environments/development
       confirmation:
         description: "Must exactly equal APPLY-DEVELOPMENT-TERRAFORM."
         required: true
@@ -92,6 +93,11 @@ jobs:
               tf_root="infrastructure/shared/security-audit"
               state_key="shared/security-audit/terraform.tfstate"
               root_slug="security-audit"
+              ;;
+            environments/development)
+              tf_root="infrastructure/environments/development"
+              state_key="environments/development/terraform.tfstate"
+              root_slug="development"
               ;;
             *)
               echo "::error::Unsupported Terraform root."

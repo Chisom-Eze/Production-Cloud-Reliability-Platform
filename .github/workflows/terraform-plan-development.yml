@@ -4,13 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       root:
-        description: "Shared Terraform root to plan."
+        description: "Approved Terraform root to plan."
         required: true
         type: choice
         options:
           - shared/container-registry
           - shared/dns
           - shared/security-audit
+          - environments/development
 
 permissions:
   contents: read
@@ -69,6 +70,11 @@ jobs:
               state_key="shared/security-audit/terraform.tfstate"
               root_slug="security-audit"
               ;;
+            environments/development)
+              tf_root="infrastructure/environments/development"
+              state_key="environments/development/terraform.tfstate"
+              root_slug="development"
+              ;;
             *)
               echo "::error::Unsupported Terraform root."
               exit 1
@@ -88,6 +94,95 @@ jobs:
             echo "state_key=${state_key}"
             echo "root_slug=${root_slug}"
           } >> "${GITHUB_OUTPUT}"
+
+      - name: Validate and supply development Terraform inputs
+        if: ${{ inputs.root == 'environments/development' }}
+        env:
+          TF_VAR_application_domain_name: ${{ vars.APPLICATION_DOMAIN_NAME }}
+          TF_VAR_route53_zone_id: ${{ vars.ROUTE53_ZONE_ID }}
+          TF_VAR_api_image_uri: ${{ vars.API_IMAGE_URI }}
+          TF_VAR_worker_image_uri: ${{ vars.WORKER_IMAGE_URI }}
+          TF_VAR_nginx_image_uri: ${{ vars.NGINX_IMAGE_URI }}
+          TF_VAR_adot_collector_image_uri: ${{ vars.ADOT_COLLECTOR_IMAGE_URI }}
+          TF_VAR_waf_common_rule_set_version: ${{ vars.WAF_COMMON_RULE_SET_VERSION }}
+          TF_VAR_waf_known_bad_inputs_rule_set_version: ${{ vars.WAF_KNOWN_BAD_INPUTS_RULE_SET_VERSION }}
+          TF_VAR_waf_sqli_rule_set_version: ${{ vars.WAF_SQLI_RULE_SET_VERSION }}
+          TF_VAR_worker_backlog_per_task_target: ${{ vars.WORKER_BACKLOG_PER_TASK_TARGET }}
+          TF_VAR_api_5xx_error_rate_alarm_percent: ${{ vars.API_5XX_ERROR_RATE_ALARM_PERCENT }}
+          TF_VAR_api_p95_latency_alarm_seconds: ${{ vars.API_P95_LATENCY_ALARM_SECONDS }}
+          TF_VAR_queue_oldest_message_age_alarm_seconds: ${{ vars.QUEUE_OLDEST_MESSAGE_AGE_ALARM_SECONDS }}
+          TF_VAR_rds_cpu_alarm_percent: ${{ vars.RDS_CPU_ALARM_PERCENT }}
+          TF_VAR_rds_free_storage_alarm_bytes: ${{ vars.RDS_FREE_STORAGE_ALARM_BYTES }}
+        run: |
+          set -euo pipefail
+
+          validation_errors=0
+
+          require_value() {
+            local github_variable="$1"
+            local value="$2"
+
+            if [[ -z "${value//[[:space:]]/}" ]]; then
+              echo "::error::Set GitHub Environment variable ${github_variable} in development-plan."
+              validation_errors=$((validation_errors + 1))
+            elif [[ "${value}" == *$'\n'* || "${value}" == *$'\r'* ]]; then
+              echo "::error::GitHub Environment variable ${github_variable} must be a single-line value."
+              validation_errors=$((validation_errors + 1))
+            fi
+          }
+
+          validate_image() {
+            local github_variable="$1"
+            local value="$2"
+
+            if [[ -n "${value}" && ( ! "${value}" =~ ^.+@sha256:[0-9a-f]{64}$ || "${value}" == *":latest@"* ) ]]; then
+              echo "::error::GitHub Environment variable ${github_variable} must use repository@sha256:<64 lowercase hex> and must not use :latest."
+              validation_errors=$((validation_errors + 1))
+            fi
+          }
+
+          require_value APPLICATION_DOMAIN_NAME "${TF_VAR_application_domain_name:-}"
+          require_value ROUTE53_ZONE_ID "${TF_VAR_route53_zone_id:-}"
+          require_value API_IMAGE_URI "${TF_VAR_api_image_uri:-}"
+          require_value WORKER_IMAGE_URI "${TF_VAR_worker_image_uri:-}"
+          require_value NGINX_IMAGE_URI "${TF_VAR_nginx_image_uri:-}"
+          require_value ADOT_COLLECTOR_IMAGE_URI "${TF_VAR_adot_collector_image_uri:-}"
+          require_value WAF_COMMON_RULE_SET_VERSION "${TF_VAR_waf_common_rule_set_version:-}"
+          require_value WAF_KNOWN_BAD_INPUTS_RULE_SET_VERSION "${TF_VAR_waf_known_bad_inputs_rule_set_version:-}"
+          require_value WAF_SQLI_RULE_SET_VERSION "${TF_VAR_waf_sqli_rule_set_version:-}"
+          require_value WORKER_BACKLOG_PER_TASK_TARGET "${TF_VAR_worker_backlog_per_task_target:-}"
+          require_value API_5XX_ERROR_RATE_ALARM_PERCENT "${TF_VAR_api_5xx_error_rate_alarm_percent:-}"
+          require_value API_P95_LATENCY_ALARM_SECONDS "${TF_VAR_api_p95_latency_alarm_seconds:-}"
+          require_value QUEUE_OLDEST_MESSAGE_AGE_ALARM_SECONDS "${TF_VAR_queue_oldest_message_age_alarm_seconds:-}"
+          require_value RDS_CPU_ALARM_PERCENT "${TF_VAR_rds_cpu_alarm_percent:-}"
+          require_value RDS_FREE_STORAGE_ALARM_BYTES "${TF_VAR_rds_free_storage_alarm_bytes:-}"
+
+          validate_image API_IMAGE_URI "${TF_VAR_api_image_uri:-}"
+          validate_image WORKER_IMAGE_URI "${TF_VAR_worker_image_uri:-}"
+          validate_image NGINX_IMAGE_URI "${TF_VAR_nginx_image_uri:-}"
+          validate_image ADOT_COLLECTOR_IMAGE_URI "${TF_VAR_adot_collector_image_uri:-}"
+
+          if (( validation_errors > 0 )); then
+            exit 1
+          fi
+
+          printf '%s\n' \
+            "TF_VAR_application_domain_name=${TF_VAR_application_domain_name}" \
+            "TF_VAR_route53_zone_id=${TF_VAR_route53_zone_id}" \
+            "TF_VAR_api_image_uri=${TF_VAR_api_image_uri}" \
+            "TF_VAR_worker_image_uri=${TF_VAR_worker_image_uri}" \
+            "TF_VAR_nginx_image_uri=${TF_VAR_nginx_image_uri}" \
+            "TF_VAR_adot_collector_image_uri=${TF_VAR_adot_collector_image_uri}" \
+            "TF_VAR_waf_common_rule_set_version=${TF_VAR_waf_common_rule_set_version}" \
+            "TF_VAR_waf_known_bad_inputs_rule_set_version=${TF_VAR_waf_known_bad_inputs_rule_set_version}" \
+            "TF_VAR_waf_sqli_rule_set_version=${TF_VAR_waf_sqli_rule_set_version}" \
+            "TF_VAR_worker_backlog_per_task_target=${TF_VAR_worker_backlog_per_task_target}" \
+            "TF_VAR_api_5xx_error_rate_alarm_percent=${TF_VAR_api_5xx_error_rate_alarm_percent}" \
+            "TF_VAR_api_p95_latency_alarm_seconds=${TF_VAR_api_p95_latency_alarm_seconds}" \
+            "TF_VAR_queue_oldest_message_age_alarm_seconds=${TF_VAR_queue_oldest_message_age_alarm_seconds}" \
+            "TF_VAR_rds_cpu_alarm_percent=${TF_VAR_rds_cpu_alarm_percent}" \
+            "TF_VAR_rds_free_storage_alarm_bytes=${TF_VAR_rds_free_storage_alarm_bytes}" \
+            "TF_VAR_ecs_services_enabled=false" >> "${GITHUB_ENV}"
 
       - name: Confirm Terraform plan role configuration
         run: |

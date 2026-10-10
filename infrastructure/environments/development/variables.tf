@@ -44,11 +44,6 @@ variable "waf_sqli_rule_set_version" {
   type        = string
 }
 
-variable "waf_ip_reputation_rule_set_version" {
-  description = "Explicit AWS-managed version for AWSManagedRulesAmazonIpReputationList. Query AWS before deployment."
-  type        = string
-}
-
 variable "api_image_uri" {
   description = "Immutable API image URI in repository-uri@sha256:digest form."
   type        = string

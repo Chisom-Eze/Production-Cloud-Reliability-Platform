@@ -81,8 +81,3 @@ variable "sqli_rule_set_version" {
   description = "Explicit version for AWSManagedRulesSQLiRuleSet. Query AWS for supported versions before deployment."
   type        = string
 }
-
-variable "ip_reputation_rule_set_version" {
-  description = "Explicit version for AWSManagedRulesAmazonIpReputationList. Query AWS for supported versions before deployment."
-  type        = string
-}

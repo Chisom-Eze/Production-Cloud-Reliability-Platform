@@ -8,6 +8,28 @@ State key:
 environments/development/terraform.tfstate
 ```
 
+## Deployment Readiness And Inputs
+
+The permanent manual Terraform Development Plan and Apply workflows allow `environments/development`, mapped to this directory, the state key above, and artifact slug `development`. The existing OIDC identities, protected GitHub environments, exact Plan run/attempt verification, source SHA checks, artifact digest checks, and binary-plan Apply remain in use.
+
+The operator supplied these recommended current-default WAF versions from AWS in `us-east-1`:
+
+```hcl
+waf_common_rule_set_version           = "Version_1.23"
+waf_known_bad_inputs_rule_set_version = "Version_1.26"
+waf_sqli_rule_set_version             = "Version_1.3"
+```
+
+These are reviewed static inputs for the three versioned managed groups. SQLi intentionally uses the discovered recommended default `Version_1.3`, rather than a numerically higher available version. Revisit the pins before expiration. `AWSManagedRulesAmazonIpReputationList` is intentionally unversioned and has no Terraform version variable or statement attribute.
+
+The permanent Plan workflow now maps the 15 required non-secret GitHub Environment Variables from `development-plan` into their exact `TF_VAR_*` names only for this root. Populate the reviewed values listed in [the development input contract](../../../docs/operations/development-deployment-input-contract.md), including these WAF pins. Shared roots skip the mapping and validation. The development step fails on missing values or invalid immutable image references before AWS authentication and planning; Terraform keeps final ownership of value validation.
+
+The exact operator-resolved ADOT digest was not supplied for this patch. Put its complete immutable URI in `ADOT_COLLECTOR_IMAGE_URI`; the explicit mapping supplies `TF_VAR_adot_collector_image_uri`. Populate `ROUTE53_ZONE_ID` from the existing `shared/dns` output `hosted_zone_id`. The input contract records the frozen API/worker/Nginx digests, `app.chisomeze.online`, and initial operational thresholds. Apply consumes the verified saved plan without a new input mapping or re-plan.
+
+The remaining required inputs and their provenance are listed in [the development input contract](../../../docs/operations/development-deployment-input-contract.md). A reviewed provider lockfile must also be generated and committed for this root before its first permanent workflow run, because initialization retains `-lockfile=readonly`.
+
+For the first infrastructure deployment, `ecs_services_enabled = false` remains the existing Terraform default and is also fixed through code-controlled `TF_VAR_ecs_services_enabled=false` in the development Plan step. It has no GitHub Environment Variable mapping or dispatch input. Terraform can create prerequisites and API/worker/migration task definitions without creating API or worker services or autoscaling. Enabling initial services requires a separate reviewed change after the one-off migration has stopped successfully and its result has been preserved. The Terraform flag does not execute or verify the migration itself.
+
 ## Network
 
 Development uses `10.10.0.0/16` across two Availability Zones:
@@ -611,7 +633,7 @@ Development configuration:
 - no Bot Control, Fraud Control, ATP, CAPTCHA, or Challenge
 - no blanket Anonymous IP block
 
-Managed rule group versions are required development variables. Before deployment, query AWS for currently supported versions and pass them explicitly. This avoids invented versions while keeping the Web ACL reproducible.
+The Common, Known Bad Inputs, and SQLi managed rule-group versions are required development variables. Their reviewed pins are recorded under Deployment Readiness And Inputs and must be supplied explicitly through the approved input mechanism. Revisit those pins before expiration. Amazon IP Reputation is intentionally unversioned and requires no version input.
 
 WAF rate limiting is an application-layer request guardrail. It is not a replacement for AWS Shield. Shield Standard is AWS baseline protection for supported resources; Shield Advanced is not implemented because it requires explicit business and cost approval.
 

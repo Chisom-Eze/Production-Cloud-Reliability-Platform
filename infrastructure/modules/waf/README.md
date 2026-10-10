@@ -26,6 +26,14 @@ The baseline includes:
 
 Bot Control, Fraud Control, ATP, CAPTCHA, Challenge, and blanket Anonymous IP blocking are intentionally omitted until there is a business and cost justification.
 
+## Managed Rule Versions
+
+`AWSManagedRulesCommonRuleSet`, `AWSManagedRulesKnownBadInputsRuleSet`, and `AWSManagedRulesSQLiRuleSet` require explicit static version inputs: `common_rule_set_version`, `known_bad_inputs_rule_set_version`, and `sqli_rule_set_version`.
+
+`AWSManagedRulesAmazonIpReputationList` is intentionally unversioned. Its statement contains only the AWS vendor and rule-group name; the module has no version input for it. Its priority, enforcement, metrics, and sampled requests follow the existing baseline.
+
+Use reviewed versions discovered from AWS for the target deployment. The recommended current default may not be the numerically highest available version. Revisit static pins before expiration and apply any version change through review.
+
 ## Logging And Privacy
 
 WAF logs are written to a dedicated CloudWatch Logs group whose name starts with `aws-waf-logs-`.

@@ -13,5 +13,4 @@ module "waf" {
   common_rule_set_version           = var.waf_common_rule_set_version
   known_bad_inputs_rule_set_version = var.waf_known_bad_inputs_rule_set_version
   sqli_rule_set_version             = var.waf_sqli_rule_set_version
-  ip_reputation_rule_set_version    = var.waf_ip_reputation_rule_set_version
 }
