@@ -350,6 +350,13 @@ data "aws_iam_policy_document" "github_development_terraform_apply_network" {
   }
 
   statement {
+    sid       = "ReadVpcSecurityGroups"
+    effect    = "Allow"
+    actions   = ["ec2:GetSecurityGroupsForVpc"]
+    resources = ["arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:vpc/*"]
+  }
+
+  statement {
     sid    = "ManageDevelopmentVpcAndRoutes"
     effect = "Allow"
     actions = [
@@ -540,15 +547,26 @@ data "aws_iam_policy_document" "github_development_terraform_apply_edge" {
     sid    = "ManageDevelopmentWaf"
     effect = "Allow"
     actions = [
-      "wafv2:CreateWebACL",
       "wafv2:DeleteLoggingConfiguration",
       "wafv2:DeleteWebACL",
       "wafv2:PutLoggingConfiguration",
       "wafv2:TagResource",
-      "wafv2:UntagResource",
-      "wafv2:UpdateWebACL"
+      "wafv2:UntagResource"
     ]
     resources = [local.development_waf_web_acl_arn]
+  }
+
+  statement {
+    sid    = "CreateAndUpdateDevelopmentWafWithManagedRules"
+    effect = "Allow"
+    actions = [
+      "wafv2:CreateWebACL",
+      "wafv2:UpdateWebACL"
+    ]
+    resources = [
+      local.development_waf_web_acl_arn,
+      "arn:aws:wafv2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:regional/managedruleset/*/*"
+    ]
   }
 
   statement {
@@ -695,6 +713,29 @@ data "aws_iam_policy_document" "github_development_terraform_apply_data" {
       "secretsmanager:ListSecretVersionIds"
     ]
     resources = local.development_rds_managed_secret_arns
+  }
+
+  statement {
+    sid    = "CreateRdsManagedDatabaseSecrets"
+    effect = "Allow"
+    actions = [
+      "secretsmanager:CreateSecret",
+      "secretsmanager:TagResource"
+    ]
+    resources = local.development_rds_managed_secret_arns
+  }
+
+  statement {
+    sid       = "DescribeRdsManagedSecretKey"
+    effect    = "Allow"
+    actions   = ["kms:DescribeKey"]
+    resources = ["arn:aws:kms:${var.aws_region}:${data.aws_caller_identity.current.account_id}:key/*"]
+
+    condition {
+      test     = "ForAnyValue:StringEquals"
+      variable = "kms:ResourceAliases"
+      values   = ["alias/aws/secretsmanager"]
+    }
   }
 
   statement {
@@ -1009,6 +1050,40 @@ data "aws_iam_policy_document" "github_development_terraform_apply_observability
       "grafana:CreateWorkspace"
     ]
     resources = ["*"]
+  }
+
+  statement {
+    sid    = "TagManagedObservabilityWorkspacesOnCreate"
+    effect = "Allow"
+    actions = [
+      "aps:TagResource",
+      "grafana:TagResource"
+    ]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Owner"
+      values   = [local.standard_tags.Owner]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Application"
+      values   = [local.standard_tags.Application]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Environment"
+      values   = [local.development_environment]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/ManagedBy"
+      values   = [local.standard_tags.ManagedBy]
+    }
   }
 
   statement {
