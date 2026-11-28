@@ -1,0 +1,156 @@
+name: Terraform Bootstrap IAM Maintenance Plan
+
+# TEMPORARY: remove both maintenance workflows and their validator after verification.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-bootstrap-iam-maintenance
+  cancel-in-progress: false
+
+jobs:
+  terraform-plan:
+    name: Bootstrap IAM maintenance plan
+    runs-on: ubuntu-latest
+    environment: development
+    env:
+      AWS_REGION: us-east-1
+      AWS_ACCOUNT_ID: "964117916184"
+      BOOTSTRAP_TRANSITION_ROLE_ARN: ${{ vars.AWS_DEVELOPMENT_DEPLOYMENT_ROLE_ARN }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VERSION: "1.10.0"
+      TF_ROOT: infrastructure/bootstrap
+      TF_STATE_BUCKET: pcrp-terraform-state-us-east-1
+      TF_STATE_KEY: bootstrap/terraform.tfstate
+      TF_VAR_state_bucket_name: pcrp-terraform-state-us-east-1
+
+    steps:
+      - name: Require main and exact bridge configuration
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]]
+          [[ "$BOOTSTRAP_TRANSITION_ROLE_ARN" == "arn:aws:iam::${AWS_ACCOUNT_ID}:role/ProductionCloudReliabilityPlatform-GitHubDevelopmentDeployment" ]]
+
+      - name: Checkout exact Plan source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials through GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.BOOTSTRAP_TRANSITION_ROLE_ARN }}
+          role-session-name: bootstrap-plan-${{ github.run_id }}
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+          # Intersect bridge permissions with read-only refresh and lock access.
+          # This session cannot write state or mutate managed IAM policy versions.
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+            {"Effect":"Allow","Action":["s3:ListBucket","s3:Get*"],"Resource":"arn:aws:s3:::pcrp-terraform-state-us-east-1"},
+            {"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::pcrp-terraform-state-us-east-1/bootstrap/terraform.tfstate"},
+            {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":"arn:aws:s3:::pcrp-terraform-state-us-east-1/bootstrap/terraform.tfstate.tflock"},
+            {"Effect":"Allow","Action":["iam:Get*","iam:List*","sts:GetCallerIdentity"],"Resource":"*"}]}
+
+      - name: Initialize exact bootstrap backend
+        run: |
+          set -euo pipefail
+          terraform -chdir="$TF_ROOT" fmt -check
+          terraform -chdir="$TF_ROOT" init \
+            -input=false -reconfigure -lockfile=readonly \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+          terraform -chdir="$TF_ROOT" validate -no-color
+
+      - name: Create exact binary bootstrap plan
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bootstrap-plan"
+          set +e
+          terraform -chdir="$TF_ROOT" plan \
+            -input=false -no-color -detailed-exitcode \
+            -out="$RUNNER_TEMP/bootstrap-plan/tfplan"
+          rc=$?
+          set -e
+          if [[ "$rc" != 2 ]]; then
+            echo "::error::Expected changes (Terraform exit 2); got exit ${rc}. Investigate before proceeding."
+            exit 1
+          fi
+
+      - name: Enforce exact four-policy mutation allowlist
+        run: |
+          set -euo pipefail
+          terraform -chdir="$TF_ROOT" show -json "$RUNNER_TEMP/bootstrap-plan/tfplan" \
+            | python3 .github/scripts/validate-bootstrap-iam-plan.py "$AWS_ACCOUNT_ID"
+
+      - name: Create Plan provenance metadata
+        id: metadata
+        run: |
+          set -euo pipefail
+          plan_dir="$RUNNER_TEMP/bootstrap-plan"
+          digest="$(sha256sum "$plan_dir/tfplan" | awk '{print $1}')"
+          artifact_name="terraform-plan-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}-bootstrap-iam"
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg workflow_name "$GITHUB_WORKFLOW" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg source_git_sha "$GITHUB_SHA" \
+            --arg source_ref "$GITHUB_REF" \
+            --arg terraform_root "$TF_ROOT" \
+            --arg backend_bucket "$TF_STATE_BUCKET" \
+            --arg backend_state_key "$TF_STATE_KEY" \
+            --arg aws_region "$AWS_REGION" \
+            --arg aws_account_id "$AWS_ACCOUNT_ID" \
+            --arg terraform_version "$TF_VERSION" \
+            --arg tfplan_sha256 "$digest" \
+            '{schema_version:1, scope:"bootstrap-iam-remediation", repository:$repository,
+              workflow_name:$workflow_name, workflow_run_id:$run_id, workflow_run_attempt:$run_attempt,
+              source_git_sha:$source_git_sha, source_ref:$source_ref, terraform_root:$terraform_root,
+              backend_bucket:$backend_bucket, backend_state_key:$backend_state_key,
+              aws_region:$aws_region, aws_account_id:$aws_account_id, terraform_version:$terraform_version,
+              plan_result:"changes detected", tfplan_sha256:$tfplan_sha256}' \
+            > "$plan_dir/plan-metadata.json"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "plan_sha256=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Upload immutable approved-plan candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.metadata.outputs.artifact_name }}
+          path: |
+            ${{ runner.temp }}/bootstrap-plan/tfplan
+            ${{ runner.temp }}/bootstrap-plan/plan-metadata.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 1
+
+      - name: Write bootstrap Plan summary
+        env:
+          PLAN_SHA256: ${{ steps.metadata.outputs.plan_sha256 }}
+          ARTIFACT_NAME: ${{ steps.metadata.outputs.artifact_name }}
+        run: |
+          {
+            echo '## Bootstrap IAM maintenance Plan'
+            echo "- Run ID: $GITHUB_RUN_ID"
+            echo "- Run attempt: $GITHUB_RUN_ATTEMPT"
+            echo "- Source SHA: $GITHUB_SHA"
+            echo "- Artifact: $ARTIFACT_NAME"
+            echo "- Plan SHA-256: $PLAN_SHA256"
+            echo '- Gate: exactly four existing IAM policy documents; review full statement diff before Apply.'
+          } >> "$GITHUB_STEP_SUMMARY"
