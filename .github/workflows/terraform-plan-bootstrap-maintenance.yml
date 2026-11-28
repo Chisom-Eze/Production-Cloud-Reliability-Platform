@@ -129,12 +129,25 @@ jobs:
           echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
           echo "plan_sha256=$digest" >> "$GITHUB_OUTPUT"
 
+      - name: Encrypt saved Plan before public artifact upload
+        env:
+          PLAN_ARTIFACT_KEY: ${{ secrets.TERRAFORM_PLAN_ARTIFACT_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "$PLAN_ARTIFACT_KEY" ]]
+          plan_dir="$RUNNER_TEMP/bootstrap-plan"
+          printf '%s\n' "$PLAN_ARTIFACT_KEY" | gpg --batch --yes \
+            --pinentry-mode loopback --passphrase-fd 0 --no-symkey-cache \
+            --symmetric --cipher-algo AES256 \
+            --output "$plan_dir/tfplan.gpg" "$plan_dir/tfplan"
+          rm -f "$plan_dir/tfplan"
+
       - name: Upload immutable approved-plan candidate
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.metadata.outputs.artifact_name }}
           path: |
-            ${{ runner.temp }}/bootstrap-plan/tfplan
+            ${{ runner.temp }}/bootstrap-plan/tfplan.gpg
             ${{ runner.temp }}/bootstrap-plan/plan-metadata.json
           if-no-files-found: error
           overwrite: false

@@ -109,6 +109,18 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ inputs.plan_run_id }}
 
+      - name: Decrypt approved saved Plan
+        env:
+          PLAN_ARTIFACT_KEY: ${{ secrets.TERRAFORM_PLAN_ARTIFACT_KEY }}
+        run: |
+          set -euo pipefail
+          [[ -n "$PLAN_ARTIFACT_KEY" ]]
+          plan_dir="$RUNNER_TEMP/approved-bootstrap-plan"
+          [[ -f "$plan_dir/tfplan.gpg" && ! -e "$plan_dir/tfplan" ]]
+          printf '%s\n' "$PLAN_ARTIFACT_KEY" | gpg --batch --yes \
+            --pinentry-mode loopback --passphrase-fd 0 --no-symkey-cache \
+            --output "$plan_dir/tfplan" --decrypt "$plan_dir/tfplan.gpg"
+
       - name: Verify metadata and operator-approved Plan digest
         run: |
           set -euo pipefail
