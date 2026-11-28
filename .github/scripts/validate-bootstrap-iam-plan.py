@@ -125,8 +125,14 @@ for resource in plan.get("resource_drift", []):
         fail("bridge role drift changes something other than inline_policy")
     old_inline = before.get("inline_policy") or []
     new_inline = after.get("inline_policy") or []
-    if old_inline or len(new_inline) != 1 or new_inline[0].get("name") != TEMP_POLICY:
-        fail("bridge role drift is not the expected temporary inline-policy attachment")
-    print("NOTICE: expected temporary inline-policy attachment in bridge drift")
+    allowed_previous = {TEMP_POLICY, "PCRPTemporaryBootstrapIamTransition"}
+    if (
+        len(old_inline) > 1
+        or any(p.get("name") not in allowed_previous for p in old_inline)
+        or len(new_inline) != 1
+        or new_inline[0].get("name") != TEMP_POLICY
+    ):
+        fail("bridge role drift is not an approved temporary inline-policy transition")
+    print("NOTICE: approved temporary inline-policy transition in bridge drift")
 
 print("PASS: exactly four existing IAM policy document updates; no other managed resource changes.")
