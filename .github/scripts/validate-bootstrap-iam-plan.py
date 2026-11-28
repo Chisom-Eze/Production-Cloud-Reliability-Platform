@@ -125,7 +125,7 @@ for resource in plan.get("resource_drift", []):
         fail("bridge role drift changes something other than inline_policy")
     old_inline = before.get("inline_policy") or []
     new_inline = after.get("inline_policy") or []
-    allowed_previous = {TEMP_POLICY, "PCRPTemporaryBootstrapIamTransition"}
+    allowed_previous = {TEMP_POLICY, "PCRPTemporaryBootstrapIamTransition", "pcrp-temporary-bootstrap-dns-transition"}
     if (
         len(old_inline) > 1
         or any(p.get("name") not in allowed_previous for p in old_inline)
